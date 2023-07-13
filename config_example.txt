@@ -1,0 +1,105 @@
+{
+    "init_img_path": "",
+    "input_images_path": "./input",
+    "output_folder": "./output",
+    "zoom_image_folder": "./zoom_images",
+    "face_image_folder": "./face_images",
+    "flow_image_folder": "./flow_images",
+
+    "base_prompt": "(masterpiece,best quality:1.2),modelshoot style, (extremely detailed 8k wallpaper), block paint depicting a character in a cyberpunk street, posed character design study, backlit, light rays, highly detailed, trending on artstation",
+    "face_prompt": "(masterpiece,best quality:1.2), face close up, ",
+    "neg_prompt": " easynegative ng_deepnegative_v1_75t, text, watermark, nsfw, nude, ",
+
+    "seed": -1,
+    "seed_mode": "fixed",
+    "sampler_name": "Euler a", 
+    "sampler_step": 30,
+    "face_sampler_step": 20,
+    "cfg_scale": 7,
+    "frame_width": 720,
+    "frame_height": 1280,
+
+    "interrogate_model": "clip",
+    "use_base_img2img": true,
+    "use_face_img2img": false,
+    "use_zoom_img2img": false,
+
+    "denoising_strength": 0.75,
+    "face_denoising_strength": 0.5,
+    "face_threshold": 0.2,
+    "face_padding": 16,
+    "zoom_denoising_strength": 0.5,
+
+    "temporalnet": "v2",
+    "temporalnet_weight": 0.4,
+    "zoom_temporalnet": "v2",
+    "zoom_temporalnet_weight": 0.4,
+    "face_temporalnet": "v2",
+    "face_temporalnet_weight": 0.4,
+
+    "use_interrogate": false,
+    "use_face_interrogate": false,
+    
+    "zoom_area_limit": 2211840, 
+    "zoom_max_resolusion": 2048,
+    "zoom_rects": [],
+    
+    "controlnet_lowvram": false,
+
+    "controlnet": [
+        {
+            "module": "none",
+            "model": "control_v11f1e_sd15_tile_fp16 [3b860298]",
+            "weight": 1,
+            "control_mode": 1,
+            "pixel_perfect": true
+        }, 
+        {
+            "module": "openpose",
+            "model": "control_v11p_sd15_openpose_fp16 [73c2b67d]",
+            "control_mode": 2,
+            "pixel_perfect": true,
+            "weight": 1
+        }, 
+        {
+            "module": "softedge_hed",
+            "model": "control_v11p_sd15_softedge_fp16 [f616a34f]",
+            "weight": 0.4,
+            "pixel_perfect": true,
+            "control_mode": 2
+        }
+    ],
+    "zoom_controlnet": [
+        {
+            "module": "none",
+            "model": "control_v11f1e_sd15_tile_fp16 [3b860298]",
+            "weight": 1,
+            "control_mode": 1,
+            "pixel_perfect": true
+        }, 
+        {
+            "module": "openpose",
+            "model": "control_v11p_sd15_openpose_fp16 [73c2b67d]",
+            "control_mode": 2,
+            "pixel_perfect": true,
+            "weight": 1
+        }, 
+        {
+            "module": "softedge_hed",
+            "model": "control_v11p_sd15_softedge_fp16 [f616a34f]",
+            "weight": 0.4,
+            "pixel_perfect": true,
+            "control_mode": 2
+        }
+    ],
+    "face_controlnet": [
+        {
+            "module": "openpose_faceonly",
+            "model": "control_v11p_sd15_openpose_fp16 [73c2b67d]",
+            "control_mode": 2,
+            "pixel_perfect": true,
+            "weight": 1
+        }
+    ]
+}
+
