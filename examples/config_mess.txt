@@ -1,42 +1,42 @@
 {
     "checkpoint": "mistoonSapphire",
-    "init_image_path": "",
     "input_folder": "./input",
     "output_folder": "./output",
     "zoom_image_folder": "./zoom_images",
     "face_image_folder": "./face_images",
     "flow_image_folder": "./flow_images",
 
-    "base_prompt": "(masterpiece,best quality, high quality:1.2), 8k uhd, posing for a picture together in white outfits and black caps, one of which is wearing a black and white baseball cap, Fan Qi, sakimichan, a photocopy, superflat",
+    "base_prompt": "(masterpiece,best quality, high quality:1.2), 8k uhd, three young women standing in front of a yellow background with a performance st sign behind them that says dance level <lora:3DMM_V12:1>",
     "face_prompt": "(masterpiece,best quality:1.2), face close up, ",
-    "neg_prompt": "ng_deepnegative_v1_75t, (worst quality, low quality:1.2), (pen), text, watermark, ",
+    "neg_prompt": "ng_deepnegative_v1_75t, (worst quality, low quality:1.2), text, watermark,  ",
 
-    "seed": 3032950113,
+    "seed": 4032950113,
     "seed_mode": "fixed",
     "sampler_name": "Euler a", 
     "sampler_step": 20,
     "face_sampler_step": 20,
-    "cfg_scale": 5,
+    "cfg_scale": 2,
     "frame_width": 1080,
     "frame_height": 1920,
+    "frame_crop": [0, 576, 1080, 1080],
 
     "interrogate_model": "clip",
     "use_base_img2img": true,
-    "use_face_img2img": false,
+    "use_face_img2img": true,
     "use_zoom_img2img": false,
 
     "denoising_strength": 0.45,
-    "face_denoising_strength": 0.5,
+    "face_denoising_strength": 0.4,
     "face_threshold": 0.2,
     "face_padding": 16,
-    "zoom_denoising_strength": 0.5,
+    "zoom_denoising_strength": 0.65,
 
     "temporalnet": "v2",
     "temporalnet_weight": 0.3,
     "zoom_temporalnet": "v2",
-    "zoom_temporalnet_weight": 0.4,
+    "zoom_temporalnet_weight": 0.3,
     "face_temporalnet": "v2",
-    "face_temporalnet_weight": 0.4,
+    "face_temporalnet_weight": 0.3,
 
     "use_interrogate": false,
     "use_face_interrogate": false,
@@ -51,7 +51,7 @@
         {
             "module": "none",
             "model": "control_v11f1e_sd15_tile_fp16 [3b860298]",
-            "weight": 1,
+            "weight": 0.8,
             "control_mode": 1,
             "pixel_perfect": true
         }, 
@@ -70,36 +70,21 @@
             "control_mode": 2
         }
     ],
-    "zoom_controlnet": [
+    "zoom_controlnet": [],
+    "face_controlnet": [
         {
             "module": "none",
             "model": "control_v11f1e_sd15_tile_fp16 [3b860298]",
-            "weight": 1,
+            "weight": 0.8,
             "control_mode": 1,
             "pixel_perfect": true
         }, 
-        {
-            "module": "openpose",
-            "model": "control_v11p_sd15_openpose_fp16 [73c2b67d]",
-            "control_mode": 2,
-            "pixel_perfect": true,
-            "weight": 1
-        }, 
-        {
-            "module": "softedge_hed",
-            "model": "control_v11p_sd15_softedge_fp16 [f616a34f]",
-            "weight": 0.4,
-            "pixel_perfect": true,
-            "control_mode": 2
-        }
-    ],
-    "face_controlnet": [
         {
             "module": "openpose_faceonly",
             "model": "control_v11p_sd15_openpose_fp16 [73c2b67d]",
             "control_mode": 2,
             "pixel_perfect": true,
-            "weight": 1
+            "weight": 0.8
         }
     ]
 }

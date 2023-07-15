@@ -7,9 +7,38 @@ from helper.temporalnet2 import make_flow
 from helper.temporalnet2 import encode_image
 from helper.zoom import process as zoom_process
 from helper.facedetect import merge_face, process as face_process
-from helper.image_util import resize_img, img_crop_and_resize
+from helper.image_util import zoom_image, resize_image, crop_and_resize
 from shutil import copyfile
 import random
+
+schedule_availables = [
+    "base_prompt",
+    "face_prompt",
+    "seed",
+    "seed_mode",
+    "sampler_name",
+    "sampler_step",
+    "face_sampler_step",
+    "cfg_scale",
+    "frame_crop",
+    "frame_zoom",
+    "use_base_img2img",
+    "use_face_img2img",
+    "use_zoom_img2img",
+    "denoising_strength",
+    "face_denoising_strength",
+    "face_threshold",
+    "face_padding",
+    "zoom_denoising_strength",
+    "use_interrogate",
+    "use_face_interrogate",
+    "temporalnet",
+    "temporalnet_weight",
+    "zoom_temporalnet",
+    "zoom_temporalnet_weight",
+    "face_temporalnet",
+    "face_temporalnet_weight",
+]
 
 
 def get_image_paths(folder):
@@ -41,18 +70,15 @@ api = webuiapi.WebUIApi()
 
 
 def run(
-    project_path="",
-    init_img_path="",
-    resume_index=0,
-    input_images_path="./input",
+    project_folder="",
+    init_image_path="",
+    input_folder="./input",
     output_folder="./output",
     zoom_image_folder="./zoom_images",
     face_image_folder="./face_images",
     flow_image_folder="./flow_images",
     base_prompt="",
-    base_prompt_list={},
     face_prompt="",
-    face_prompt_list={},
     neg_prompt="",
     checkpoint="",
     seed=-1,
@@ -64,11 +90,13 @@ def run(
     frame_width=720,
     frame_height=1280,
     frame_crop=None,
+    frame_zoom=None,
     interrogate_model="clip",
     face_interrogate_model="deepdanbooru",
     use_base_img2img=True,
     use_zoom_img2img=False,
     use_face_img2img=False,
+    copy_base_image="input",
     denoising_strength=0.75,
     face_denoising_strength=0.5,
     face_threshold=0.2,
@@ -93,17 +121,25 @@ def run(
     controlnet=[],
     zoom_controlnet=[],
     face_controlnet=[],
+    frame_schedule={},
+    chromakey="",
+    resume_index=0,
+    config={},
 ):
-    print(f"# project path {project_path}")
+    print(f"# project path {project_folder}")
 
-    if project_path:
-        input_images_path = os.path.normpath(os.path.join(project_path, input_images_path))
-        output_folder = os.path.normpath(os.path.join(project_path, output_folder))
-        zoom_image_folder = os.path.normpath(os.path.join(project_path, zoom_image_folder))
-        face_image_folder = os.path.normpath(os.path.join(project_path, face_image_folder))
-        flow_image_folder = os.path.normpath(os.path.join(project_path, flow_image_folder))
+    if not input_folder and not input_video_path:
+        print(f"# input error")
+        return
 
-    print(f"# input images path {input_images_path}")
+    if project_folder:
+        input_folder = os.path.normpath(os.path.join(project_folder, input_folder))
+        output_folder = os.path.normpath(os.path.join(project_folder, output_folder))
+        zoom_image_folder = os.path.normpath(os.path.join(project_folder, zoom_image_folder))
+        face_image_folder = os.path.normpath(os.path.join(project_folder, face_image_folder))
+        flow_image_folder = os.path.normpath(os.path.join(project_folder, flow_image_folder))
+
+    print(f"# input images path {input_folder}")
     print(f"# output folder {output_folder}")
 
     os.makedirs(output_folder, exist_ok=True)
@@ -111,12 +147,16 @@ def run(
     os.makedirs(face_image_folder, exist_ok=True)
     os.makedirs(flow_image_folder, exist_ok=True)
 
+    if not os.path.exists(input_folder):
+        print(f"# extract input_video_path")
+
     if seed == -1:
         seed = random.randrange(1, 2**63)
     print(f"# seed {seed}")
     print(f"# seed mode {seed_mode}")
 
     if checkpoint:
+        api.refresh_checkpoints()
         print(f"# change checkpoint {checkpoint}")
         api.util_set_model(checkpoint)
 
@@ -139,10 +179,10 @@ def run(
         face_controlnet_units.append(cn_unit)
 
     init_image = None
-    if init_img_path:
-        init_image = Image.open(os.path.join(project_path, init_img_path))
+    if init_image_path:
+        init_image = Image.open(os.path.join(project_folder, init_image_path))
 
-    input_images_path_list = get_image_paths(input_images_path)
+    input_images_path_list = get_image_paths(input_folder)
 
     input_img = None
     input_img_arr = None
@@ -165,12 +205,41 @@ def run(
         last_image = Image.open(input_images_path_list[resume_index - 1])
         last_image_arr = np.array(last_image)
         if last_image.width != frame_width or last_image.height != frame_height:
-            last_image_arr = resize_img(last_image_arr, frame_width, frame_height)
+            last_image_arr = resize_image(last_image_arr, frame_width, frame_height)
+
+    current_zoom_scale = 1
+    current_zoom_offset_x = 0
+    current_zoom_offset_y = 0
+    current_zoom_step = None
+    goal_zoom_scale = None
+    goal_zoom_offset_x = None
+    goal_zoom_offset_y = None
+    goal_zoom_step = None
 
     for i in range(start_index, len(input_images_path_list)):
         frame_number = i + 1
-
         print(f"# frame {frame_number}")
+
+        #####################
+        # frame schedule
+        if frame_number in frame_schedule:
+            print(f"# frame {frame_number}")
+            frame_config = frame_schedule[frame_number]
+            if "checkpoint" in frame_config:
+                checkpoint = frame_config["checkpoint"]
+                print(f"# change checkpoint {checkpoint}")
+                api.util_set_model(checkpoint)
+
+            if "rollback" in frame_config:
+                frame_config = config
+                print(f"# rollback")
+
+            if "break" in frame_config:
+                break
+
+            for key in schedule_availables:
+                if key in frame_config:
+                    locals()[key] = frame_config[key]
 
         output_filename = os.path.basename(input_images_path_list[i])
         output_image_path = os.path.join(output_folder, output_filename)
@@ -181,19 +250,69 @@ def run(
         input_img = Image.open(input_images_path_list[i])
         input_img_arr = np.array(input_img)
 
-        if input_img.width != frame_width or input_img.height != frame_height:
-            input_img_arr = resize_img(input_img_arr, frame_width, frame_height)
+        # zoom scale
+        if frame_zoom != None:
+            if isinstance(frame_zoom, list):
+                if len(frame_zoom) == 4:
+                    [scale, offset_x, offset_y, frames] = frame_zoom
+                if len(frame_zoom) == 3:
+                    [scale, offset_x, offset_y] = frame_zoom
+                    frames = 0
+                if len(frame_zoom) == 1:
+                    [scale] = frame_zoom
+                    offset_x = 0
+                    offset_y = 0
+                    frames = 0
+            else:
+                scale = frame_zoom
+                offset_x = 0
+                offset_y = 0
+                frames = 0
+            if frames > 0:
+                goal_zoom_scale = scale
+                goal_zoom_offset_x = offset_x
+                goal_zoom_offset_y = offset_y
+                goal_zoom_step = frames
+                current_zoom_scale = 1
+                current_zoom_offset_x = 0
+                current_zoom_offset_y = 0
+                current_zoom_step = 1
+            else:
+                goal_zoom_step = 0
+                current_zoom_scale = scale
+                current_zoom_offset_x = offset_x
+                current_zoom_offset_y = offset_y
+                current_zoom_step = 0
+            frame_zoom = None
+
+        if goal_zoom_scale != None:
+            t = current_zoom_step / goal_zoom_step
+            print(f"t {t}")
+            current_zoom_scale = (1 - t) + t * goal_zoom_scale
+            current_zoom_offset_x = (int)((1 - t) + t * goal_zoom_offset_x)
+            current_zoom_offset_y = (int)((1 - t) + t * goal_zoom_offset_y)
+
+        if current_zoom_scale != None and current_zoom_scale > 1:
+            print(f"zoom scale {current_zoom_scale} ({current_zoom_offset_x},{current_zoom_offset_y})")
+            input_img_arr = zoom_image(input_img_arr, current_zoom_scale)
+            (h, w) = input_img_arr.shape[:2]
+            x = ((w - input_img.width) >> 1) + current_zoom_offset_x
+            y = ((h - input_img.height) >> 1) + current_zoom_offset_y
+            input_img_arr = input_img_arr[y : y + current_frame_height, x : x + current_frame_width]
+            input_img = Image.fromarray(input_img_arr)
+            current_zoom_step = current_zoom_step + 1
+            if current_zoom_step > goal_zoom_step:
+                goal_zoom_scale = None
 
         if frame_crop != None and len(frame_crop) == 4:
-            [x, y, current_frame_width, current_frame_height] = frame_crop
-            input_img_arr = input_img_arr[y : y + current_frame_height, x : x + current_frame_width]
+            [x, y, w, h] = frame_crop
+            input_img_arr = input_img_arr[y : y + h, x : x + w]
             input_img = Image.fromarray(input_img_arr)
             # input_img.save(os.path.join(output_folder, output_filename))
 
-        if frame_number in base_prompt_list:
-            base_prompt = base_prompt_list[frame_number]
-        if frame_number in face_prompt_list:
-            face_prompt = face_prompt_list[frame_number]
+        if input_img.width != frame_width or input_img.height != frame_height:
+            input_img_arr = resize_image(input_img_arr, frame_width, frame_height, "crop")
+            input_img = Image.fromarray(input_img_arr)
 
         if use_interrogate:
             ret = api.interrogate(input_img, interrogate_model)
@@ -243,6 +362,22 @@ def run(
             base_output_image = ret.images[0]
             base_output_image_arr = np.array(base_output_image)
             base_output_image.save(output_image_path)
+        else:
+            if copy_base_image == "base":
+                if os.path.exists(os.path.join(zoom_image_folder, output_filename)):
+                    base_output_image = Image.open(os.path.join(zoom_image_folder, output_filename))
+                    base_output_image_arr = np.array(base_output_image)
+                elif os.path.exists(os.path.join(face_image_folder, output_filename)):
+                    base_output_image = Image.open(os.path.join(face_image_folder, output_filename))
+                    base_output_image_arr = np.array(base_output_image)
+                elif os.path.exists(output_image_path):
+                    base_output_image = Image.open(output_image_path)
+                    base_output_image_arr = np.array(base_output_image)
+
+            else:
+                base_output_image = input_img
+                base_output_image_arr = np.array(base_output_image)
+                base_output_image.save(output_image_path)
 
         ######################
         # zoom img2img
@@ -260,9 +395,9 @@ def run(
                     p_zoom_controlnet_units = zoom_controlnet_units
                 else:
                     unit_tempo = None
-                    last_zoom_img_arr = img_crop_and_resize(last_image_arr, [x, y, calc_w, calc_h], zoom_img.width, zoom_img.height)
+                    last_zoom_img_arr = crop_and_resize(last_image_arr, [x, y, calc_w, calc_h], zoom_img.width, zoom_img.height)
                     if zoom_temporalnet == "v2":
-                        flow_zoom_image_arr = img_crop_and_resize(flow_image_arr, [x, y, calc_w, calc_h], zoom_img.width, zoom_img.height)
+                        flow_zoom_image_arr = crop_and_resize(flow_image_arr, [x, y, calc_w, calc_h], zoom_img.width, zoom_img.height)
                         unit_tempo = unit_tempo_v2
                         unit_tempo.weight = zoom_temporalnet_weight
                         unit_tempo.encoded_image = encode_image(flow_zoom_image_arr, last_zoom_img_arr)
@@ -321,9 +456,9 @@ def run(
                     p_face_controlnet_units = face_controlnet_units
                 else:
                     unit_tempo = None
-                    last_face_img_arr = img_crop_and_resize(last_image_arr, new_coord, face_img.width, face_img.height)
+                    last_face_img_arr = crop_and_resize(last_image_arr, new_coord, face_img.width, face_img.height)
                     if face_temporalnet == "v2":
-                        flow_face_image_arr = img_crop_and_resize(flow_image_arr, new_coord, face_img.width, face_img.height)
+                        flow_face_image_arr = crop_and_resize(flow_image_arr, new_coord, face_img.width, face_img.height)
                         unit_tempo = unit_tempo_v2
                         unit_tempo.weight = face_temporalnet_weight
                         unit_tempo.lowvram = controlnet_lowvram

@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from huggingface_hub import hf_hub_download
 from ultralytics import YOLO
-from helper.image_util import resize_img
+from helper.image_util import resize_image
 
 model_path = hf_hub_download("Bingsu/adetailer", "face_yolov8n.pt")
 face_model = YOLO(model_path)
@@ -68,7 +68,7 @@ def face_img_crop(img_array, face_coords):
         # print(f"resize {[re_w,re_h]}")
         # print(f"calc {[calc_w,calc_h]}")
         face_img = img_array[y : y + calc_h, x : x + calc_w]
-        face_img = resize_img(face_img, re_w, re_h)
+        face_img = resize_image(face_img, re_w, re_h)
         resized.append(Image.fromarray(face_img))
         new_coord[2] = calc_w
         new_coord[3] = calc_h
@@ -80,7 +80,7 @@ def face_img_crop(img_array, face_coords):
 def merge_face(img_array, face_array, face_coord, mask):
     (x, y, w, h) = face_coord
 
-    face_array = resize_img(face_array, w, h)
+    face_array = resize_image(face_array, w, h)
     mask_array = np.array(mask.convert("L"))
     mask_array = mask_array[y : y + h, x : x + w]
     mask_array = mask_array.astype(dtype="float") / 255

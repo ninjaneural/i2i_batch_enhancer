@@ -9,7 +9,7 @@ from torchvision.models.optical_flow import Raft_Large_Weights
 from torchvision.models.optical_flow import raft_large
 from torchvision.utils import flow_to_image
 import pickle
-from helper.image_util import resize_img
+from helper.image_util import resize_image
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -41,7 +41,7 @@ def make_flow(frameA, frameB, frame_width, frame_height, flow_image_folder, outp
     flow_img = flow_to_image(predicted_flow)
     img_arr = np.array(flow_img.permute(1, 2, 0).cpu(), dtype=np.uint8)
     # flow_img = flow_to_image(predicted_flow).cpu().numpy()
-    img_arr = resize_img(img_arr, frame_width, frame_height)
+    img_arr = resize_image(img_arr, frame_width, frame_height)
 
     flow_image_path = os.path.join(flow_image_folder, output_filename)
     Image.fromarray(img_arr).save(flow_image_path)
