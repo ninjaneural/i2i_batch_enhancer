@@ -53,4 +53,4 @@ def process(frame_index, input_img_arr, zoom_rects, zoom_area_limit, zoom_max_re
         output_mask_image_path = os.path.join(zoom_image_folder, output_mask_filename)
         mask.save(output_mask_image_path)
 
-    return (zoom_rects, zoom_image_list, zoom_coords, masks)
+    return (zoom_image_list, zoom_coords, masks)
