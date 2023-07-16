@@ -1,7 +1,7 @@
 import os
 import helper.webuiapi as webuiapi
 from PIL import Image, ImageDraw
-import cv2
+from helper.image_util import blur_masks
 import numpy as np
 
 
@@ -23,20 +23,6 @@ def zoom_ratio_detect(w, h, zoom_area_limit, zoom_max_resolusion):
     calc_h = int(re_h * (w / re_w))
 
     return [re_w, re_h, calc_w, calc_h]
-
-
-def blur_masks(masks, dilation_factor, iter=1):
-    dilated_masks = []
-    if dilation_factor == 0:
-        return masks
-    kernel = np.ones((dilation_factor, dilation_factor), np.uint8)
-    for i in range(len(masks)):
-        cv2_mask = np.array(masks[i])
-        dilated_mask = cv2.erode(cv2_mask, kernel, iter)
-        dilated_mask = cv2.GaussianBlur(dilated_mask, (51, 51), 0)
-
-        dilated_masks.append(Image.fromarray(dilated_mask))
-    return dilated_masks
 
 
 def process(frame_index, input_img_arr, zoom_rects, zoom_area_limit, zoom_max_resolusion, zoom_image_folder, output_filename):

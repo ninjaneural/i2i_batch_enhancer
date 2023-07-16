@@ -8,33 +8,53 @@ def zoom_image(img, scale):
 
 
 # resize|fit|crop
-def resize_image(img, w, h, mode="resize"):
-    (img_width, img_height) = img.shape[:2]
+def resize_image(img, w, h, mode="resize", anchor="center"):
+    (img_height, img_width) = img.shape[:2]
     if img_height + img_width < h + w:
         interpolation = interpolation = cv2.INTER_CUBIC
     else:
         interpolation = interpolation = cv2.INTER_AREA
 
     if mode == "crop":
-        if w - img_width < h - img_height:
+        if w / img_width < h / img_height:
             scale = h / img_height
-            x = (w - img_width) >> 1
-            return cv2.resize(img, (img_width * scale, h), interpolation=interpolation)[0:h, x : x + w]
-        elif w - img_width > h - img_height:
+            re_w = int(img_width * scale)
+            re_h = h
+            X = 0
+            y = 0
+            if anchor == "center":
+                x = (re_w - w) >> 1
+            elif anchor == "right":
+                x = re_w - w
+        else:
             scale = w / img_width
-            y = (h - img_height) >> 1
-            return cv2.resize(img, (w, img_height * scale), interpolation=interpolation)[y : y + h, 0:w]
+            re_w = w
+            re_h = int(img_height * scale)
+            x = 0
+            y = 0
+            if anchor == "center":
+                y = (re_h - h) >> 1
+            elif anchor == "bottom":
+                y = re_h - h
+        return cv2.resize(img, (re_w, re_h), interpolation=interpolation)[y : y + h, x : x + w]
     elif mode == "fit":
-        if w - img_width > h - img_height:
+        if w / img_width > h / img_height:
             scale = h / img_height
+            top = 0
+            bottom = 0
             left = (w - img_width) >> 1
             right = (w - img_width) - left
-            return np.pad(cv2.resize(img, (img_width * scale, h), interpolation=interpolation), pad_width=((0, 0), (left, right), (0, 0)), mode="constant")
-        elif w - img_width < h - img_height:
+            re_w = int(img_width * scale)
+            re_h = h
+        else:
             scale = w / img_width
             top = (h - img_height) >> 1
             bottom = (h - img_height) - top
-            return np.pad(cv2.resize(img, (w, img_height * scale), interpolation=interpolation), pad_width=((top, bottom), (0, 0), (0, 0)), mode="constant")
+            left = 0
+            right = 0
+            re_w = w
+            re_h = int(img_height * scale)
+        return np.pad(cv2.resize(img, (re_w, re_h), interpolation=interpolation), pad_width=((top, bottom), (left, right), (0, 0)), mode="constant")
 
     return cv2.resize(img, (w, h), interpolation=interpolation)
 
@@ -43,3 +63,33 @@ def crop_and_resize(img_array, coords, re_w, re_h, mode="resize"):
     (x, y, w, h) = coords
     crop_image = img_array[y : y + h, x : x + w]
     return resize_image(crop_image, re_w, re_h, mode)
+
+
+def blur_masks(masks, dilation_factor, iter=1):
+    dilated_masks = []
+    if dilation_factor == 0:
+        return masks
+    kernel = np.ones((dilation_factor, dilation_factor), np.uint8)
+    for i in range(len(masks)):
+        cv2_mask = np.array(masks[i])
+        dilated_mask = cv2.erode(cv2_mask, kernel, iter)
+        dilated_mask = cv2.GaussianBlur(dilated_mask, (51, 51), 0)
+
+        dilated_masks.append(Image.fromarray(dilated_mask))
+    return dilated_masks
+
+
+def merge_image(bg_array, cover_array, face_coord, mask):
+    (x, y, w, h) = face_coord
+
+    cover_array = resize_image(cover_array, w, h)
+    mask_array = np.array(mask.convert("L"))
+    mask_array = mask_array[y : y + h, x : x + w]
+    mask_array = mask_array.astype(dtype="float") / 255
+    if mask_array.ndim == 2:
+        mask_array = mask_array[:, :, np.newaxis]
+
+    bg = bg_array[y : y + h, x : x + w]
+    bg_array[y : y + h, x : x + w] = mask_array * cover_array + (1 - mask_array) * bg
+
+    return bg_array

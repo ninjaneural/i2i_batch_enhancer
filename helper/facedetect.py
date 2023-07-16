@@ -1,10 +1,9 @@
 import os
 from PIL import Image, ImageDraw
-import cv2
 import numpy as np
 from huggingface_hub import hf_hub_download
 from ultralytics import YOLO
-from helper.image_util import resize_image
+from helper.image_util import blur_masks, resize_image
 
 model_path = hf_hub_download("Bingsu/adetailer", "face_yolov8n.pt")
 face_model = YOLO(model_path)
@@ -16,20 +15,6 @@ def face_detect(image, conf_thres):
     if bboxes.size > 0:
         bboxes = bboxes.tolist()
     return bboxes
-
-
-def blur_masks(masks, dilation_factor, iter=1):
-    dilated_masks = []
-    if dilation_factor == 0:
-        return masks
-    kernel = np.ones((dilation_factor, dilation_factor), np.uint8)
-    for i in range(len(masks)):
-        cv2_mask = np.array(masks[i])
-        dilated_mask = cv2.erode(cv2_mask, kernel, iter)
-        dilated_mask = cv2.GaussianBlur(dilated_mask, (51, 51), 0)
-
-        dilated_masks.append(Image.fromarray(dilated_mask))
-    return dilated_masks
 
 
 def x_ceiling(value, step):
@@ -75,22 +60,6 @@ def face_img_crop(img_array, face_coords):
 
     # print(new_coords)
     return resized, new_coords
-
-
-def merge_face(img_array, face_array, face_coord, mask):
-    (x, y, w, h) = face_coord
-
-    face_array = resize_image(face_array, w, h)
-    mask_array = np.array(mask.convert("L"))
-    mask_array = mask_array[y : y + h, x : x + w]
-    mask_array = mask_array.astype(dtype="float") / 255
-    if mask_array.ndim == 2:
-        mask_array = mask_array[:, :, np.newaxis]
-
-    bg = img_array[y : y + h, x : x + w]
-    img_array[y : y + h, x : x + w] = mask_array * face_array + (1 - mask_array) * bg
-
-    return img_array
 
 
 def process(input_img_arr, threshold, padding, face_image_folder, output_filename):
