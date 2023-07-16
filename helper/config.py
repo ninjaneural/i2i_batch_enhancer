@@ -25,6 +25,7 @@ class Config(dict):
         self.frame_crop = None  # [x, y, width, height]
         self.frame_zoom = None  # [scale, offsetx, offsety, frames(0=immediately)]
         self.start_frame = 1
+        self.dynamic_face_zoom = False
 
         self.interrogate_model = "clip"  # clip, deepdanbooru
         self.face_interrogate_model = "deepdanbooru"  # clip, deepdanbooru
@@ -34,7 +35,7 @@ class Config(dict):
 
         self.denoising_strength = 0.5
         self.face_denoising_strength = 0.4
-        self.face_threshold = 0.2
+        self.face_threshold = 0.35
         self.face_padding = 16
         self.zoom_denoising_strength = 0.65
 

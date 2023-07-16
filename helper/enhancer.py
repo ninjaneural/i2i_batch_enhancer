@@ -5,12 +5,42 @@ import numpy as np
 from helper.temporalnet2 import make_flow
 from helper.temporalnet2 import encode_image
 from helper.zoom import process as zoom_process
-from helper.facedetect import process as face_process
+from helper.facedetect import face_detect, process as face_process
 from helper.image_util import zoom_image, resize_image, crop_and_resize, merge_image
 from helper.config import Config
 from helper.util import get_image_paths
 from shutil import copyfile
 import random
+
+
+class TweenValue:
+    def __init__(self, current=0) -> None:
+        self.current = current
+        self.start = current
+        self.goal = current
+        self.count = 0
+        self.total = 0
+
+    def next(self):
+        if self.count >= self.total:
+            self.current = this.goal
+        else:
+            t = self.count / self.total
+            self.current = (1 - t) * self.start + t * self.goal
+            self.count = self.count + 1
+
+    def reset(self, goal, total, start=None):
+        self.goal = goal
+        self.total = total
+        self.count = 0
+        if start != None:
+            self.start = start
+        else:
+            self.start = current
+
+    def isend(self):
+        return self.total <= self.count
+
 
 schedule_availables = [
     "base_prompt",
@@ -139,17 +169,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         last_image_arr = np.array(init_image)
         start_index = 1
 
-    current_zoom_scale = 1
-    current_zoom_offset_x = 0
-    current_zoom_offset_y = 0
-    current_zoom_step = None
-    goal_zoom_scale = None
-    goal_zoom_offset_x = None
-    goal_zoom_offset_y = None
-    goal_zoom_step = None
-    start_zoom_scale = None
-    start_zoom_offset_x = None
-    start_zoom_offset_y = None
+    tweenScale = TweenValue(1)
+    tweenOffsetX = TweenValue(0)
+    tweenOffsetY = TweenValue(0)
 
     if not config.start_frame:
         config.start_frame = 1
@@ -165,12 +187,8 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         output_filename = os.path.basename(input_images_path_list[i])
         output_image_path = os.path.join(output_folder, output_filename)
 
-        if not overwrite:
-            if os.path.isfile(output_image_path):
-                print("skip")
-                if frame_number < total_frames and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[i + 1]))):
-                    last_image_arr = Image.open(os.path.join(output_folder, os.path.basename(input_images_path_list[i])))
-                continue
+        # init
+        face_detect_coords = None
 
         #####################
         # frame schedule
@@ -203,8 +221,8 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 if key in frame_config:
                     setattr(config, key, frame_config[key])
 
-        current_frame_width = config.frame_width
-        current_frame_height = config.frame_height
+        frame_width = config.frame_width
+        frame_height = config.frame_height
 
         input_img = Image.open(input_images_path_list[i])
         input_img_arr = np.array(input_img)
@@ -220,6 +238,44 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         if input_img.width != config.frame_width or input_img.height != config.frame_height:
             input_img_arr = resize_image(input_img_arr, config.frame_width, config.frame_height, config.frame_resize, config.frame_resize_anchor)
             input_img = Image.fromarray(input_img_arr)
+
+        # dynamic face zoom
+        if config.dynamic_face_zoom:
+            face_detect_coords = face_detect(Image.fromarray(input_img_arr), config.face_threshold)
+
+            select_face_coords = None
+            if len(face_detect_coords) == 1:
+                select_face_coords = face_detect_coords[0]
+            elif len(face_detect_coords) > 1:
+                select_face_coords = face_detect_coords[0]
+                select_area = select_face_coords[2] * select_face_coords[3]
+                for i in range(1, len(face_detect_coords)):
+                    (x1, y1, x2, y2) = face_detect_coords[i]
+                    (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                    print(f"{w}x{h}")
+                    area = w * h
+                    if select_area > area:
+                        select_face_coords = face_detect_coords[i]
+                        select_area = area
+
+            if select_face_coords != None:
+                (x1, y1, x2, y2) = select_face_coords
+                (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                # print(f"face detect ({x}, {y}, {w}, {h})")
+                dynamic_face_size = select_area**0.5
+                # print(f"dynamic_face_scale {dynamic_face_size}")
+
+                guide_area_size = frame_width / 7
+                # print(f"dynamic guide_area_scale {guide_area_size}")
+                if guide_area_size > dynamic_face_size:
+                    zoom_scale = 1 + (guide_area_size - dynamic_face_size) / guide_area_size
+                    # print(f"dynamic zoom_scale {zoom_scale}")
+                    config.frame_zoom = [zoom_scale, 0, 0, 10]
+                elif guide_area_size < dynamic_face_size:
+                    if tweenScale.current > 1:
+                        zoom_scale = 1 + (guide_area_size - dynamic_face_size) / guide_area_size
+                        # print(f"dynamic zoom_scale {zoom_scale}")
+                        config.frame_zoom = [zoom_scale, 0, 0, 10]
 
         # zoom scale
         if config.frame_zoom != None:
@@ -245,51 +301,39 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 offset_x = 0
                 offset_y = 0
                 frames = 0
-            if frames > 0:
-                goal_zoom_scale = scale
-                goal_zoom_offset_x = offset_x
-                goal_zoom_offset_y = offset_y
-                goal_zoom_step = frames
-                start_zoom_scale = current_zoom_scale
-                start_zoom_offset_x = current_zoom_offset_x
-                start_zoom_offset_y = current_zoom_offset_y
-                current_zoom_step = 1
-            elif scale != 1:
-                goal_zoom_step = 0
-                current_zoom_scale = scale
-                current_zoom_offset_x = offset_x
-                current_zoom_offset_y = offset_y
-                current_zoom_step = 0
+            if scale < 1:
+                scale = 1
+
+            tweenScale.reset(scale, frames)
+            tweenOffsetX.reset(offset_x, frames)
+            tweenOffsetX.reset(offset_y, frames)
             config.frame_zoom = None
 
-        if goal_zoom_scale != None:
-            if goal_zoom_step == 0:
-                t = 1
-            else:
-                t = current_zoom_step / goal_zoom_step
-            current_zoom_scale = (1 - t) * start_zoom_scale + t * goal_zoom_scale
-            current_zoom_offset_x = (int)((1 - t) * start_zoom_offset_x + t * goal_zoom_offset_x)
-            current_zoom_offset_y = (int)((1 - t) * start_zoom_offset_y + t * goal_zoom_offset_y)
-            print(f"t {t} current_zoom_scale {current_zoom_scale}")
+        if tweenScale.current != 1 or tweenOffsetX.current != 0 or tweenOffsetY.current != 0:
+            print(f"zoom scale {tweenScale.current} ({tweenOffsetX.current},{tweenOffsetY.current})")
+            input_img_arr = zoom_image(input_img_arr, tweenScale.current)
+            (h, w) = input_img_arr.shape[:2]
+            x = ((w - input_img.width) >> 1) + int(tweenOffsetX.current)
+            y = ((h - input_img.height) >> 1) + int(tweenOffsetY.current)
+            input_img_arr = input_img_arr[y : y + frame_height, x : x + frame_width]
+            input_img = Image.fromarray(input_img_arr)
 
-        if current_zoom_scale != None:
-            if current_zoom_scale != 1 or current_zoom_offset_x != 0 or current_zoom_offset_y != 0:
-                print(f"zoom scale {current_zoom_scale} ({current_zoom_offset_x},{current_zoom_offset_y})")
-                input_img_arr = zoom_image(input_img_arr, current_zoom_scale)
-                (h, w) = input_img_arr.shape[:2]
-                x = ((w - input_img.width) >> 1) + current_zoom_offset_x
-                y = ((h - input_img.height) >> 1) + current_zoom_offset_y
-                input_img_arr = input_img_arr[y : y + current_frame_height, x : x + current_frame_width]
-                input_img = Image.fromarray(input_img_arr)
-                current_zoom_step = current_zoom_step + 1
-                if current_zoom_step > goal_zoom_step:
-                    goal_zoom_scale = None
+            tweenScale.next()
+            tweenOffsetX.next()
+            tweenOffsetY.next()
 
         # resume frame
         if frame_number < resume_frame:
             if frame_number == resume_frame - 1:
                 last_image_arr = np.array(Image.open(output_image_path))
             continue
+
+        if not overwrite:
+            if os.path.isfile(output_image_path):
+                print("skip")
+                if frame_number < total_frames and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[i + 1]))):
+                    last_image_arr = Image.open(os.path.join(output_folder, os.path.basename(input_images_path_list[i])))
+                continue
 
         ########################
         # base img2img
@@ -315,7 +359,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             else:
                 unit_tempo = None
                 if config.temporalnet == "v2":
-                    flow_image_arr = make_flow(input_images_path_list[i - 1], input_images_path_list[i], current_frame_width, current_frame_height, flow_image_folder, output_filename)
+                    flow_image_arr = make_flow(input_images_path_list[i - 1], input_images_path_list[i], frame_width, frame_height, flow_image_folder, output_filename)
                     unit_tempo = unit_tempo_v2
                     unit_tempo.weight = config.temporalnet_weight
                     unit_tempo.encoded_image = encode_image(flow_image_arr, last_image_arr)
@@ -336,8 +380,8 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 denoising_strength=config.denoising_strength,
                 seed=-1 if config.seed_mode == "random" else seed if config.seed_mode == "fixed" else seed + i,
                 cfg_scale=config.cfg_scale,
-                width=current_frame_width,
-                height=current_frame_height,
+                width=frame_width,
+                height=frame_height,
                 controlnet_units=[x for x in p_controlnet_units if x is not None],
             )
 
@@ -376,9 +420,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         ######################
         # zoom img2img
         if config.use_zoom_img2img:
-            (zoom_rects, zoom_images, zoom_coords, masks) = zoom_process(i, input_img_arr, config.zoom_rects, config.zoom_area_limit, config.zoom_max_resolusion, zoom_image_folder, output_filename)
+            (zoom_images, zoom_coords, zoom_masks) = zoom_process(i, input_img_arr, config.zoom_rects, config.zoom_area_limit, config.zoom_max_resolusion, zoom_image_folder, output_filename)
 
-            for zoom_index, (zoom_img, zoom_coord, mask) in enumerate(zip(zoom_images, zoom_coords, masks)):
+            for zoom_index, (zoom_img, zoom_coord, mask) in enumerate(zip(zoom_images, zoom_coords, zoom_masks)):
                 [x, y, re_w, re_h, calc_w, calc_h] = zoom_coord
 
                 for unit in zoom_controlnet_units:
@@ -439,9 +483,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         #####################
         # face img2img
         if config.use_face_img2img:
-            (face_imgs, new_coords, masks) = face_process(input_img_arr, config.face_threshold, config.face_padding, face_image_folder, output_filename)
+            (face_imgs, face_coords, face_masks) = face_process(input_img_arr, config.face_threshold, config.face_padding, face_image_folder, output_filename, face_detect_coords)
 
-            for face_index, (face_img, new_coord, mask) in enumerate(zip(face_imgs, new_coords, masks)):
+            for face_index, (face_img, face_coord, mask) in enumerate(zip(face_imgs, face_coords, face_masks)):
                 for unit in face_controlnet_units:
                     unit.input_image = face_img
 
@@ -450,9 +494,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                     p_face_controlnet_units = face_controlnet_units
                 else:
                     unit_tempo = None
-                    last_face_img_arr = crop_and_resize(last_image_arr, new_coord, face_img.width, face_img.height)
+                    last_face_img_arr = crop_and_resize(last_image_arr, face_coord, face_img.width, face_img.height)
                     if config.face_temporalnet == "v2":
-                        flow_face_image_arr = crop_and_resize(flow_image_arr, new_coord, face_img.width, face_img.height)
+                        flow_face_image_arr = crop_and_resize(flow_image_arr, face_coord, face_img.width, face_img.height)
                         unit_tempo = unit_tempo_v2
                         unit_tempo.weight = config.face_temporalnet_weight
                         unit_tempo.lowvram = config.controlnet_lowvram
