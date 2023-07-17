@@ -5,7 +5,7 @@ import helper.enhancer as enhancer
 import helper.padding_end as padding_end
 import helper.video_util as video_util
 import helper.patch_cover as patch_cover
-from helper.config import Config
+from helper.config import Config, PatchConfig
 
 
 def get_args():
@@ -18,6 +18,7 @@ def get_args():
     parser.add_argument("--padding-end", dest="padding_end", default=0)
     parser.add_argument("--rework-mode", dest="rework_mode", default="")
     parser.add_argument("--patchfile", dest="patchfile", default="")
+    parser.add_argument("--samplerun", dest="samplerun", default=None)
 
     # video
     parser.add_argument("--fps", dest="fps", default=15)
@@ -45,10 +46,18 @@ else:
     if args.patchfile:
         with open(os.path.join(configpath, args.patchfile), "r") as json_read:
             patchconfig = json.load(json_read)
-        patch_cover.run(Config(**config), project_folder=configpath, patch_name=args.patchfile, patch_rects=patchconfig)
+        patch_cover.run(Config(**config), project_folder=configpath, patchconfig=PatchConfig(**patchconfig))
     # padding end mode
     elif args.padding_end > 0:
         padding_end.run(Config(**config), project_folder=configpath, padding_end=int(args.padding_end))
     # run
     else:
-        enhancer.run(Config(**config), project_folder=configpath, overwrite=bool(args.overwrite), resume_frame=int(args.resume_frame), end_frame=int(args.end_frame), rework_mode=str(args.rework_mode))
+        enhancer.run(
+            Config(**config),
+            project_folder=configpath,
+            overwrite=bool(args.overwrite),
+            resume_frame=int(args.resume_frame),
+            end_frame=int(args.end_frame),
+            rework_mode=str(args.rework_mode),
+            samplerun=args.samplerun,
+        )

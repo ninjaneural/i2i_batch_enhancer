@@ -2,8 +2,7 @@ import os
 import helper.webuiapi as webuiapi
 from PIL import Image
 import numpy as np
-from helper.temporalnet2 import make_flow
-from helper.temporalnet2 import encode_image
+from helper.temporalnet2 import make_flow, encode_image
 from helper.zoom import process as zoom_process
 from helper.facedetect import face_detect, process as face_process
 from helper.image_util import zoom_image, resize_image, crop_and_resize, merge_image
@@ -23,7 +22,7 @@ class TweenValue:
 
     def next(self):
         if self.count >= self.total:
-            self.current = this.goal
+            self.current = self.goal
         else:
             t = self.count / self.total
             self.current = (1 - t) * self.start + t * self.goal
@@ -33,10 +32,12 @@ class TweenValue:
         self.goal = goal
         self.total = total
         self.count = 0
+        if total == 0 or total == 1:
+            self.current = goal
         if start != None:
             self.start = start
         else:
-            self.start = current
+            self.start = self.current
 
     def isend(self):
         return self.total <= self.count
@@ -53,6 +54,7 @@ schedule_availables = [
     "cfg_scale",
     "frame_crop",
     "frame_zoom",
+    "dynamic_face_zoom",
     "use_base_img2img",
     "use_face_img2img",
     "use_zoom_img2img",
@@ -92,7 +94,7 @@ unit_tempo_v2 = webuiapi.ControlNetUnit(
 api = webuiapi.WebUIApi()
 
 
-def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int, end_frame: int, rework_mode: str = None):
+def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int, end_frame: int, rework_mode: str = None, samplerun=None):
     print(f"# project path {project_folder}")
 
     if project_folder:
@@ -126,10 +128,15 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
     print(f"# seed {seed}")
     print(f"# seed mode {config.seed_mode}")
 
-    if config.checkpoint:
+    if samplerun != None:
         api.refresh_checkpoints()
-        print(f"# change checkpoint {config.checkpoint}")
-        api.util_set_model(config.checkpoint)
+        model_names = api.util_get_model_names()
+        samplerun_index = 0
+    else:
+        if config.checkpoint:
+            api.refresh_checkpoints()
+            print(f"# change checkpoint {config.checkpoint}")
+            api.util_set_model(config.checkpoint)
 
     current_model = api.util_get_current_model()
     print(f"# current checkpoint {current_model}")
@@ -176,16 +183,32 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
     if not config.start_frame:
         config.start_frame = 1
 
-    total_frames = len(input_images_path_list)
-    for i in range(start_index, total_frames):
-        frame_number = i + 1
-        print(f"# frame {frame_number}")
+    if samplerun != None:
+        total_frames = len(model_names)
+    else:
+        total_frames = len(input_images_path_list)
+    for frame_index in range(start_index, total_frames):
+        if samplerun != None:
+            print(f"model_names {samplerun_index}/{len(model_names)}")
+            if samplerun_index == len(model_names):
+                break
+            checkpoint = os.path.splitext(model_names[samplerun_index])[0]
+            print(f"checkpoint {checkpoint}")
+            output_filename = checkpoint + ".png"
+            output_image_path = os.path.join(output_folder, output_filename)
+            if not os.path.isfile(output_image_path):
+                api.util_set_model(checkpoint)
+            samplerun_index = samplerun_index + 1
+            frame_index = samplerun
+        else:
+            output_filename = os.path.basename(input_images_path_list[frame_index])
+            output_image_path = os.path.join(output_folder, output_filename)
+
+        frame_number = frame_index + 1
+        print(f"# frame {frame_number}/{total_frames}")
 
         if config.start_frame > frame_number:
             continue
-
-        output_filename = os.path.basename(input_images_path_list[i])
-        output_image_path = os.path.join(output_folder, output_filename)
 
         # init
         face_detect_coords = None
@@ -224,7 +247,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         frame_width = config.frame_width
         frame_height = config.frame_height
 
-        input_img = Image.open(input_images_path_list[i])
+        input_img = Image.open(input_images_path_list[frame_index])
         input_img_arr = np.array(input_img)
 
         # image crop
@@ -309,6 +332,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             tweenOffsetX.reset(offset_y, frames)
             config.frame_zoom = None
 
+        print(f"scale {tweenScale.current}")
         if tweenScale.current != 1 or tweenOffsetX.current != 0 or tweenOffsetY.current != 0:
             print(f"zoom scale {tweenScale.current} ({tweenOffsetX.current},{tweenOffsetY.current})")
             input_img_arr = zoom_image(input_img_arr, tweenScale.current)
@@ -331,8 +355,8 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         if not overwrite:
             if os.path.isfile(output_image_path):
                 print("skip")
-                if frame_number < total_frames and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[i + 1]))):
-                    last_image_arr = Image.open(os.path.join(output_folder, os.path.basename(input_images_path_list[i])))
+                if samplerun == None and frame_number < total_frames and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index + 1]))):
+                    last_image_arr = Image.open(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index])))
                 continue
 
         ########################
@@ -359,7 +383,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             else:
                 unit_tempo = None
                 if config.temporalnet == "v2":
-                    flow_image_arr = make_flow(input_images_path_list[i - 1], input_images_path_list[i], frame_width, frame_height, flow_image_folder, output_filename)
+                    flow_image_arr = make_flow(input_images_path_list[frame_index - 1], input_images_path_list[frame_index], frame_width, frame_height, flow_image_folder, output_filename)
                     unit_tempo = unit_tempo_v2
                     unit_tempo.weight = config.temporalnet_weight
                     unit_tempo.encoded_image = encode_image(flow_image_arr, last_image_arr)

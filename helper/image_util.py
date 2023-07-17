@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw
 
 
 def zoom_image(img, scale):
@@ -79,10 +80,10 @@ def blur_masks(masks, dilation_factor, iter=1):
     return dilated_masks
 
 
-def merge_image(bg_array, cover_array, face_coord, mask):
-    (x, y, w, h) = face_coord
+def merge_image(bg_array, patch_array, coord, mask):
+    (x, y, w, h) = coord
 
-    cover_array = resize_image(cover_array, w, h)
+    patch_array = resize_image(patch_array, w, h)
     mask_array = np.array(mask.convert("L"))
     mask_array = mask_array[y : y + h, x : x + w]
     mask_array = mask_array.astype(dtype="float") / 255
@@ -90,6 +91,6 @@ def merge_image(bg_array, cover_array, face_coord, mask):
         mask_array = mask_array[:, :, np.newaxis]
 
     bg = bg_array[y : y + h, x : x + w]
-    bg_array[y : y + h, x : x + w] = mask_array * cover_array + (1 - mask_array) * bg
+    bg_array[y : y + h, x : x + w] = mask_array * patch_array + (1 - mask_array) * bg
 
     return bg_array

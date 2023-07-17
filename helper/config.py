@@ -61,3 +61,14 @@ class Config(dict):
 
         for key, value in kwargs.items():
             setattr(self, key, value)
+
+
+class PatchConfig(dict):
+    def __init__(self, **kwargs):
+        self.particle_folder = "./input"
+        self.bg_folder = "./output"
+        self.output_folder = "./patch"
+        self.patch_rects = []  # [x, y, width, height, start_frame, end_frame]
+
+        for key, value in kwargs.items():
+            setattr(self, key, value)
