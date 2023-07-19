@@ -62,11 +62,10 @@ def face_img_crop(img_array, face_coords):
     return resized, new_coords
 
 
-def process(input_img_arr, threshold, padding, face_image_folder, output_filename, coords=None):
+def process(input_img_arr, threshold, padding, face_image_folder, output_filename):
     (height, width) = input_img_arr.shape[:2]
     output_basename = os.path.splitext(output_filename)[0]
-    if coords == None:
-        coords = face_detect(Image.fromarray(input_img_arr), threshold)
+    coords = face_detect(Image.fromarray(input_img_arr), threshold)
     face_coords = []
     for coord in coords:
         (x1, y1, x2, y2) = coord
@@ -93,7 +92,7 @@ def process(input_img_arr, threshold, padding, face_image_folder, output_filenam
 
     masks = []
     for mask_index, new_coord in enumerate(face_ret[1]):
-        mask = Image.new("L", [height, height], 0)
+        mask = Image.new("L", [width, height], 0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.rectangle(
             [

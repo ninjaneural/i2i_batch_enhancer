@@ -48,7 +48,7 @@ else:
             patchconfig = json.load(json_read)
         patch_cover.run(Config(**config), project_folder=configpath, patchconfig=PatchConfig(**patchconfig))
     # padding end mode
-    elif args.padding_end > 0:
+    elif int(args.padding_end) > 0:
         padding_end.run(Config(**config), project_folder=configpath, padding_end=int(args.padding_end))
     # run
     else:

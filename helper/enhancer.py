@@ -7,7 +7,7 @@ from helper.zoom import process as zoom_process
 from helper.facedetect import face_detect, process as face_process
 from helper.image_util import zoom_image, resize_image, crop_and_resize, merge_image
 from helper.config import Config
-from helper.util import get_image_paths
+from helper.util import get_image_paths, movingaverage
 from shutil import copyfile
 import random
 
@@ -134,9 +134,10 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         samplerun_index = 0
     else:
         if config.checkpoint:
-            api.refresh_checkpoints()
-            print(f"# change checkpoint {config.checkpoint}")
-            api.util_set_model(config.checkpoint)
+            if config.use_base_img2img or config.use_zoom_img2img or config.use_face_img2img:
+                api.refresh_checkpoints()
+                print(f"# change checkpoint {config.checkpoint}")
+                api.util_set_model(config.checkpoint)
 
     current_model = api.util_get_current_model()
     print(f"# current checkpoint {current_model}")
@@ -210,18 +211,22 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         if config.start_frame > frame_number:
             continue
 
-        # init
-        face_detect_coords = None
-
         #####################
         # frame schedule
         if str(frame_number) in config.frame_schedule:
             print(f"# frame schedule {frame_number}")
             frame_config = config.frame_schedule[str(frame_number)]
+            if "rollback" in frame_config:
+                print(f"# rollback")
+                frame_config = {}
+                for key in schedule_availables:
+                    frame_config[key] = getattr(config, key)
+
             if "checkpoint" in frame_config:
                 checkpoint = frame_config["checkpoint"]
-                print(f"# change checkpoint {checkpoint}")
-                api.util_set_model(checkpoint)
+                if config.use_base_img2img or config.use_zoom_img2img or config.use_face_img2img:
+                    print(f"# change checkpoint {checkpoint}")
+                    api.util_set_model(checkpoint)
 
             if "seed" in frame_config:
                 if frame_config["seed"] == -1:
@@ -229,13 +234,6 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 else:
                     seed = frame_config["seed"]
                 print(f"# seed {seed}")
-
-            if "rollback" in frame_config:
-                frame_config = config
-                checkpoint = frame_config["checkpoint"]
-                print(f"# change checkpoint {checkpoint}")
-                api.util_set_model(checkpoint)
-                print(f"# rollback")
 
             if "break" in frame_config:
                 break
@@ -258,8 +256,8 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             # input_img.save(os.path.join(output_folder, output_filename))
 
         # fit frame size
-        if input_img.width != config.frame_width or input_img.height != config.frame_height:
-            input_img_arr = resize_image(input_img_arr, config.frame_width, config.frame_height, config.frame_resize, config.frame_resize_anchor)
+        if input_img.width != frame_width or input_img.height != frame_height:
+            input_img_arr = resize_image(input_img_arr, frame_width, frame_height, config.frame_resize, config.frame_resize_anchor)
             input_img = Image.fromarray(input_img_arr)
 
         # dynamic face zoom
@@ -269,14 +267,19 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             select_face_coords = None
             if len(face_detect_coords) == 1:
                 select_face_coords = face_detect_coords[0]
+                (x1, y1, x2, y2) = select_face_coords
+                (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                select_area = w * h
             elif len(face_detect_coords) > 1:
                 select_face_coords = face_detect_coords[0]
-                select_area = select_face_coords[2] * select_face_coords[3]
+                (x1, y1, x2, y2) = select_face_coords
+                (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                select_area = w * h
                 for i in range(1, len(face_detect_coords)):
                     (x1, y1, x2, y2) = face_detect_coords[i]
                     (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
-                    print(f"{w}x{h}")
                     area = w * h
+                    print(f"- {area}")
                     if select_area > area:
                         select_face_coords = face_detect_coords[i]
                         select_area = area
@@ -284,21 +287,21 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             if select_face_coords != None:
                 (x1, y1, x2, y2) = select_face_coords
                 (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
-                # print(f"face detect ({x}, {y}, {w}, {h})")
+                print(f"face detect ({x}, {y}, {w}, {h})")
                 dynamic_face_size = select_area**0.5
-                # print(f"dynamic_face_scale {dynamic_face_size}")
+                print(f"dynamic_face_scale {dynamic_face_size}")
 
-                guide_area_size = frame_width / 7
-                # print(f"dynamic guide_area_scale {guide_area_size}")
+                guide_area_size = frame_width / 6.5
+                print(f"dynamic guide_area_scale {guide_area_size}")
                 if guide_area_size > dynamic_face_size:
                     zoom_scale = 1 + (guide_area_size - dynamic_face_size) / guide_area_size
-                    # print(f"dynamic zoom_scale {zoom_scale}")
-                    config.frame_zoom = [zoom_scale, 0, 0, 10]
+                    print(f"dynamic zoom_scale {zoom_scale}")
+                    config.frame_zoom = [zoom_scale, 0, 0, 5]
                 elif guide_area_size < dynamic_face_size:
                     if tweenScale.current > 1:
                         zoom_scale = 1 + (guide_area_size - dynamic_face_size) / guide_area_size
-                        # print(f"dynamic zoom_scale {zoom_scale}")
-                        config.frame_zoom = [zoom_scale, 0, 0, 10]
+                        print(f"dynamic zoom_scale {zoom_scale}")
+                        config.frame_zoom = [zoom_scale, 0, 0, 5]
 
         # zoom scale
         if config.frame_zoom != None:
@@ -330,6 +333,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             tweenScale.reset(scale, frames)
             tweenOffsetX.reset(offset_x, frames)
             tweenOffsetX.reset(offset_y, frames)
+            tweenScale.next()
+            tweenOffsetX.next()
+            tweenOffsetY.next()
             config.frame_zoom = None
 
         print(f"scale {tweenScale.current}")
@@ -342,9 +348,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             input_img_arr = input_img_arr[y : y + frame_height, x : x + frame_width]
             input_img = Image.fromarray(input_img_arr)
 
-            tweenScale.next()
-            tweenOffsetX.next()
-            tweenOffsetY.next()
+        tweenScale.next()
+        tweenOffsetX.next()
+        tweenOffsetY.next()
 
         # resume frame
         if frame_number < resume_frame:
@@ -507,7 +513,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         #####################
         # face img2img
         if config.use_face_img2img:
-            (face_imgs, face_coords, face_masks) = face_process(input_img_arr, config.face_threshold, config.face_padding, face_image_folder, output_filename, face_detect_coords)
+            (face_imgs, face_coords, face_masks) = face_process(input_img_arr, config.face_threshold, config.face_padding, face_image_folder, output_filename)
 
             for face_index, (face_img, face_coord, mask) in enumerate(zip(face_imgs, face_coords, face_masks)):
                 for unit in face_controlnet_units:
@@ -538,7 +544,8 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                     prompt = config.face_prompt + ret.info
                 else:
                     prompt = config.face_prompt
-                print(f" * face {face_index}")
+                print(f" * face {face_index} {face_img.width} {face_img.height}")
+                print(p_face_controlnet_units)
 
                 ret = api.img2img(
                     prompt=prompt,
@@ -560,7 +567,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 face_output_image.save(output_face_image_path)
                 face_output_image_arr = np.array(face_output_image)
 
-                base_output_image_arr = merge_image(base_output_image_arr, face_output_image_arr, new_coord, mask)
+                base_output_image_arr = merge_image(base_output_image_arr, face_output_image_arr, face_coord, mask)
 
             if len(face_imgs) > 0:
                 output_full_image_path = os.path.join(face_image_folder, output_filename)
