@@ -122,11 +122,14 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         print(f"# extract input_video_path")
 
     if config.seed == -1:
-        seed = random.randrange(1, 2**63)
+        seed = random.randrange(1, 2**31)
     else:
         seed = config.seed
     print(f"# seed {seed}")
     print(f"# seed mode {config.seed_mode}")
+
+    # temporalnet v2 bug
+    # temporalnet 적용후 controlnet 안쓸때 에러
 
     if samplerun != None:
         api.refresh_checkpoints()
@@ -139,8 +142,8 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 print(f"# change checkpoint {config.checkpoint}")
                 api.util_set_model(config.checkpoint)
 
-    current_model = api.util_get_current_model()
-    print(f"# current checkpoint {current_model}")
+    # current_model = api.util_get_current_model()
+    # print(f"# current checkpoint {current_model}")
 
     controlnet_units = []
     for cn in config.controlnet:
@@ -450,9 +453,11 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         ######################
         # zoom img2img
         if config.use_zoom_img2img:
-            (zoom_images, zoom_coords, zoom_masks) = zoom_process(i, input_img_arr, config.zoom_rects, config.zoom_area_limit, config.zoom_max_resolusion, zoom_image_folder, output_filename)
+            (zoom_images, zoom_coords, zoom_mask_arrs) = zoom_process(
+                i, input_img_arr, config.zoom_rects, config.zoom_blur, config.zoom_area_limit, config.zoom_max_resolusion, zoom_image_folder, output_filename
+            )
 
-            for zoom_index, (zoom_img, zoom_coord, mask) in enumerate(zip(zoom_images, zoom_coords, zoom_masks)):
+            for zoom_index, (zoom_img, zoom_coord, zoom_mask_arr) in enumerate(zip(zoom_images, zoom_coords, zoom_mask_arrs)):
                 [x, y, re_w, re_h, calc_w, calc_h] = zoom_coord
 
                 for unit in zoom_controlnet_units:
@@ -502,7 +507,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 zoom_output_image.save(output_zoom_image_path)
                 zoom_output_image_arr = np.array(zoom_output_image)
 
-                base_output_image_arr = merge_image(base_output_image_arr, zoom_output_image_arr, (x, y, calc_w, calc_h), mask)
+                base_output_image_arr = merge_image(base_output_image_arr, zoom_output_image_arr, (x, y, calc_w, calc_h), zoom_mask_arr)
 
             if len(zoom_images) > 0:
                 output_full_image_path = os.path.join(zoom_image_folder, output_filename)
@@ -513,9 +518,12 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         #####################
         # face img2img
         if config.use_face_img2img:
-            (face_imgs, face_coords, face_masks) = face_process(input_img_arr, config.face_threshold, config.face_padding, face_image_folder, output_filename)
+            if config.face_source == "input":
+                (face_imgs, face_coords, face_mask_arrs) = face_process(input_img_arr, config.face_threshold, config.face_padding, config.face_blur, face_image_folder, output_filename)
+            else:
+                (face_imgs, face_coords, face_mask_arrs) = face_process(base_output_image_arr, config.face_threshold, config.face_padding, config.face_blur, face_image_folder, output_filename)
 
-            for face_index, (face_img, face_coord, mask) in enumerate(zip(face_imgs, face_coords, face_masks)):
+            for face_index, (face_img, face_coord, face_mask_arr) in enumerate(zip(face_imgs, face_coords, face_mask_arrs)):
                 for unit in face_controlnet_units:
                     unit.input_image = face_img
 
@@ -544,8 +552,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                     prompt = config.face_prompt + ret.info
                 else:
                     prompt = config.face_prompt
-                print(f" * face {face_index} {face_img.width} {face_img.height}")
-                print(p_face_controlnet_units)
+                print(f" * face {face_index}")
 
                 ret = api.img2img(
                     prompt=prompt,
@@ -567,7 +574,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 face_output_image.save(output_face_image_path)
                 face_output_image_arr = np.array(face_output_image)
 
-                base_output_image_arr = merge_image(base_output_image_arr, face_output_image_arr, face_coord, mask)
+                base_output_image_arr = merge_image(base_output_image_arr, face_output_image_arr, face_coord, face_mask_arr)
 
             if len(face_imgs) > 0:
                 output_full_image_path = os.path.join(face_image_folder, output_filename)

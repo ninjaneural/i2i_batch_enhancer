@@ -129,20 +129,21 @@ def run(config: Config, project_folder: str, patchconfig: PatchConfig):
                 mask = Image.new("L", [frame_width, frame_height], 0)
                 mask_draw = ImageDraw.Draw(mask)
                 mask_draw.rectangle([x, y + mod_y, x + w, y + h], fill=255)
-                masks.append(mask)
+                masks.append(np.array(mask))
                 patch_coords.append([x, y + mod_y, w, h])
 
-        masks = blur_masks(masks, 20)
-        for mask_index, mask in enumerate(masks):
+        mask_arrs = blur_masks(masks, 20)
+        for mask_index, mask_arr in enumerate(mask_arrs):
+            mask = Image.fromarray(mask_arr)
             output_mask_filename = f"{os.path.splitext(output_filename)[0]}-{mask_index}.png"
             output_mask_image_path = os.path.join(patch_mask_output_folder, output_mask_filename)
             mask.save(output_mask_image_path)
 
-        for patch_index, (patch_coord, masks) in enumerate(zip(patch_coords, masks)):
+        for patch_index, (patch_coord, mask_arr) in enumerate(zip(patch_coords, mask_arrs)):
             [x, y, w, h] = patch_coord
             particle_img_arr = particle_img_arr[y : y + h, x : x + w]
             Image.fromarray(particle_img_arr).save(os.path.join(patch_mask_output_folder, output_filename))
-            particle_img_arr = merge_image(bg_img_arr, particle_img_arr, patch_coord, mask)
+            particle_img_arr = merge_image(bg_img_arr, particle_img_arr, patch_coord, mask_arr)
 
         if len(patch_coords) >= 1:
             merged_image = Image.fromarray(particle_img_arr)

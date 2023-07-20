@@ -37,6 +37,9 @@ class Config(dict):
         self.face_denoising_strength = 0.4
         self.face_threshold = 0.35
         self.face_padding = 16
+        self.face_blur = 16
+        self.zoom_blur = 16
+        self.face_source = "input"
         self.zoom_denoising_strength = 0.65
 
         self.use_interrogate = False

@@ -25,7 +25,7 @@ def zoom_ratio_detect(w, h, zoom_area_limit, zoom_max_resolusion):
     return [re_w, re_h, calc_w, calc_h]
 
 
-def process(frame_index, input_img_arr, zoom_rects, zoom_area_limit, zoom_max_resolusion, zoom_image_folder, output_filename):
+def process(frame_index, input_img_arr, zoom_rects, zoom_blur, zoom_area_limit, zoom_max_resolusion, zoom_image_folder, output_filename):
     zoom_image_list = []
     zoom_coords = []
     masks = []
@@ -41,16 +41,17 @@ def process(frame_index, input_img_arr, zoom_rects, zoom_area_limit, zoom_max_re
             mask = Image.new("L", [input_img_width, input_img_height], 0)
             mask_draw = ImageDraw.Draw(mask)
             mask_draw.rectangle([x, y, x + calc_w, y + calc_h], fill=255)
-            masks.append(mask)
+            masks.append(np.array(mask))
 
             img_array = input_img_arr
             zoom_img = Image.fromarray(img_array[y : y + calc_h, x : x + calc_w])
             zoom_image_list.append(zoom_img)
 
-    masks = blur_masks(masks, 25)
-    for mask_index, mask in enumerate(masks):
+    mask_arrs = blur_masks(masks, zoom_blur)
+    for mask_index, mask_arr in enumerate(mask_arrs):
+        mask = Image.fromarray(mask_arr)
         output_mask_filename = f"{os.path.splitext(output_filename)[0]}-zoom-mask{mask_index}.png"
         output_mask_image_path = os.path.join(zoom_image_folder, output_mask_filename)
         mask.save(output_mask_image_path)
 
-    return (zoom_image_list, zoom_coords, masks)
+    return (zoom_image_list, zoom_coords, mask_arrs)

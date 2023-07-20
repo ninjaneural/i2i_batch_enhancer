@@ -62,17 +62,20 @@ def face_img_crop(img_array, face_coords):
     return resized, new_coords
 
 
-def process(input_img_arr, threshold, padding, face_image_folder, output_filename):
+def process(input_img_arr, threshold, padding, blur, face_image_folder, output_filename):
     (height, width) = input_img_arr.shape[:2]
     output_basename = os.path.splitext(output_filename)[0]
     coords = face_detect(Image.fromarray(input_img_arr), threshold)
     face_coords = []
+    mask_coords = []
     for coord in coords:
         (x1, y1, x2, y2) = coord
         x1 = x1 - padding
         y1 = y1 - padding
         x2 = x2 + padding
         y2 = y2 + padding
+        (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+        mask_coords.append((x, y, w, h))
         if x1 < 0:
             x1 = 0
         if y1 < 0:
@@ -84,31 +87,33 @@ def process(input_img_arr, threshold, padding, face_image_folder, output_filenam
         (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
         face_coords.append((x, y, w, h))
     # print(face_coords)
-    face_ret = face_img_crop(input_img_arr, face_coords)
-    for face_index, face in enumerate(face_ret[0]):
+    [face_list, face_new_coords] = face_img_crop(input_img_arr, face_coords)
+    for face_index, face in enumerate(face_list):
         output_face_filename = f"{output_basename}-face{face_index}.png"
         output_face_image_path = os.path.join(face_image_folder, output_face_filename)
         face.save(output_face_image_path)
 
-    masks = []
-    for mask_index, new_coord in enumerate(face_ret[1]):
-        mask = Image.new("L", [width, height], 0)
+    mask_arrs = []
+    for mask_index, new_coord in enumerate(mask_coords):
+        [x, y, w, h] = new_coord
+        mask = Image.new("L", [width + 100, height + 100], 0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.rectangle(
             [
-                new_coord[0],
-                new_coord[1],
-                new_coord[0] + new_coord[2],
-                new_coord[1] + new_coord[3],
+                x + 50,
+                y + 50,
+                x + 50 + w,
+                y + 50 + h,
             ],
             fill=255,
         )
-        masks.append(mask)
+        mask_arrs.append(np.array(mask))
 
-    masks = blur_masks(masks, 25)
-    for mask_index, mask in enumerate(masks):
+    mask_arrs = list(map(lambda arr: arr[50 : 50 + height, 50 : 50 + width], blur_masks(mask_arrs, blur)))
+    for mask_index, mask_arr in enumerate(mask_arrs):
+        mask = Image.fromarray(mask_arr)
         output_mask_filename = f"{output_basename}-mask{mask_index}.png"
         output_mask_image_path = os.path.join(face_image_folder, output_mask_filename)
         mask.save(output_mask_image_path)
 
-    return face_ret[0], face_ret[1], masks
+    return face_list, face_new_coords, mask_arrs

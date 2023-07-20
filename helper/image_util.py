@@ -72,19 +72,18 @@ def blur_masks(masks, dilation_factor, iter=1):
         return masks
     kernel = np.ones((dilation_factor, dilation_factor), np.uint8)
     for i in range(len(masks)):
-        cv2_mask = np.array(masks[i])
+        cv2_mask = masks[i]
         dilated_mask = cv2.erode(cv2_mask, kernel, iter)
         dilated_mask = cv2.GaussianBlur(dilated_mask, (51, 51), 0)
 
-        dilated_masks.append(Image.fromarray(dilated_mask))
+        dilated_masks.append(dilated_mask)
     return dilated_masks
 
 
-def merge_image(bg_array, patch_array, coord, mask):
+def merge_image(bg_array, patch_array, coord, mask_array):
     (x, y, w, h) = coord
 
     patch_array = resize_image(patch_array, w, h)
-    mask_array = np.array(mask.convert("L"))
     mask_array = mask_array[y : y + h, x : x + w]
     mask_array = mask_array.astype(dtype="float") / 255
     if mask_array.ndim == 2:
