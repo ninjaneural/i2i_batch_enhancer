@@ -15,9 +15,11 @@ class Config(dict):
         self.seed = -1
         self.seed_mode = "fixed"  # fixed,iter,random
         self.sampler_name = "Euler a"
-        self.sampler_step = 30
-        self.face_sampler_step = 20
-        self.cfg_scale = 7
+        self.sampler_step = 25
+        self.cfg_scale = 5
+        self.face_sampler_name = self.sampler_name
+        self.face_sampler_step = self.sampler_step
+        self.face_cfg_scale = self.cfg_scale
         self.frame_width = 1080
         self.frame_height = 1920
         self.frame_resize = "crop"  # crop,fit,resize
@@ -35,12 +37,12 @@ class Config(dict):
 
         self.denoising_strength = 0.5
         self.face_denoising_strength = 0.4
-        self.face_threshold = 0.35
+        self.face_threshold = 0.2
         self.face_padding = 16
         self.face_blur = 16
+        self.face_source = "input"  # input, output
+        self.zoom_denoising_strength = 0.4
         self.zoom_blur = 16
-        self.face_source = "input"
-        self.zoom_denoising_strength = 0.65
 
         self.use_interrogate = False
         self.use_face_interrogate = False
