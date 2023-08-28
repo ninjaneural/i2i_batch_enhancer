@@ -1,5 +1,6 @@
 # https://github.com/mix1009/sdwebuiapi
 
+import os
 import json
 import requests
 import io
@@ -735,7 +736,8 @@ class WebUIApi:
             max_sim = 0.0
             max_model = models[0]
             for model in models:
-                sim = str_simularity(name, model)
+                model_name = os.path.splitext(model)[0]
+                sim = str_simularity(name, model_name)
                 if sim >= max_sim:
                     max_sim = sim
                     max_model = model

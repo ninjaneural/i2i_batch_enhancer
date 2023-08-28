@@ -4,12 +4,44 @@ from PIL import Image
 import numpy as np
 from helper.temporalnet2 import make_flow, encode_image
 from helper.zoom import process as zoom_process
-from helper.facedetect import process as face_process
-from helper.image_util import resize_image, crop_and_resize, merge_image
+from helper.facedetect import face_detect, process as face_process
+from helper.image_util import zoom_image, resize_image, crop_and_resize, merge_image
 from helper.config import Config
-from helper.util import get_image_paths
+from helper.util import get_image_paths, get_lora_paths, smooth_data, intersect_rect
 from shutil import copyfile
 import random
+
+
+class TweenValue:
+    def __init__(self, current=0) -> None:
+        self.current = current
+        self.start = current
+        self.goal = current
+        self.count = 0
+        self.total = 0
+
+    def next(self):
+        if self.count >= self.total:
+            self.current = self.goal
+        else:
+            t = self.count / self.total
+            self.current = (1 - t) * self.start + t * self.goal
+            self.count = self.count + 1
+
+    def reset(self, goal, total, start=None):
+        self.goal = goal
+        self.total = total
+        self.count = 0
+        if total == 0 or total == 1:
+            self.current = goal
+        if start != None:
+            self.start = start
+        else:
+            self.start = self.current
+
+    def isend(self):
+        return self.total <= self.count
+
 
 schedule_availables = [
     "base_prompt",
@@ -20,6 +52,9 @@ schedule_availables = [
     "sampler_step",
     "face_sampler_step",
     "cfg_scale",
+    "frame_crop",
+    "frame_zoom",
+    "dynamic_face_zoom",
     "use_base_img2img",
     "use_face_img2img",
     "use_zoom_img2img",
@@ -37,6 +72,7 @@ schedule_availables = [
     "face_temporalnet",
     "face_temporalnet_weight",
 ]
+
 
 unit_tempo_v1 = webuiapi.ControlNetUnit(
     module="none",
@@ -58,11 +94,12 @@ unit_tempo_v2 = webuiapi.ControlNetUnit(
 api = webuiapi.WebUIApi()
 
 
-def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, resume_frame: int, end_frame: int, rework_mode: str = None):
+def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int, end_frame: int, rework_mode: str = None, samplerun=None, loratest=None):
     print(f"# project path {project_folder}")
 
     if project_folder:
         input_folder = os.path.normpath(os.path.join(project_folder, config.input_folder))
+        input_generate_folder = os.path.normpath(os.path.join(project_folder, config.input_folder + "_generate"))
         output_folder = os.path.normpath(os.path.join(project_folder, config.output_folder))
         zoom_image_folder = os.path.normpath(os.path.join(output_folder, "./zoom_images"))
         face_image_folder = os.path.normpath(os.path.join(output_folder, "./face_images"))
@@ -96,11 +133,19 @@ def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, res
     # temporalnet v2 bug
     # temporalnet 적용후 controlnet 안쓸때 에러
 
-    if config.checkpoint:
-        if config.use_base_img2img or config.use_zoom_img2img or config.use_face_img2img:
-            api.refresh_checkpoints()
-            print(f"# change checkpoint {config.checkpoint}")
-            api.util_set_model(config.checkpoint)
+    samplerun_index = 0
+    if samplerun != None:
+        api.refresh_checkpoints()
+        model_names = api.util_get_model_names()
+    else:
+        if config.checkpoint:
+            if config.use_base_img2img or config.use_zoom_img2img or config.use_face_img2img:
+                api.refresh_checkpoints()
+                print(f"# change checkpoint {config.checkpoint}")
+                api.util_set_model(config.checkpoint)
+
+    # current_model = api.util_get_current_model()
+    # print(f"# current checkpoint {current_model}")
 
     controlnet_units = []
     for cn in config.controlnet:
@@ -122,8 +167,6 @@ def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, res
         init_image = Image.open(os.path.join(project_folder, config.init_image_path))
 
     input_images_path_list = get_image_paths(input_folder)
-    if reverse:
-        input_images_path_list.reverse()
 
     input_img = None
     input_img_arr = None
@@ -140,18 +183,126 @@ def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, res
     if init_image != None:
         last_image_arr = np.array(init_image)
 
+    tweenScale = TweenValue(1)
+    tweenOffsetX = TweenValue(0)
+    tweenOffsetY = TweenValue(0)
+
     if not config.start_frame:
         config.start_frame = 1
 
-    total_frames = len(input_images_path_list)
-    print(f"total frames {total_frames}")
+    if samplerun != None:
+        total_frames = len(model_names)
+    else:
+        total_frames = len(input_images_path_list)
 
-    base_prompt = config.base_prompt + "," + config.base_prompt2 + "," + config.base_prompt3 + "," + config.base_prompt4 + "," + config.base_prompt5
+    if loratest != None:
+        loratest_list = get_lora_paths(loratest)
+
+    # dynamic face zoom
+    dynamic_face_zoom_scales = []
+    if config.dynamic_face_zoom:
+        print(f"# dynamic face zoom mode")
+        print(f"  frame zoom skip")
+        if os.path.isfile(os.path.join(project_folder, f"./dynamic_face_zoom_scales.npy")):
+            dynamic_face_zoom_scales = np.load(os.path.join(project_folder, f"./dynamic_face_zoom_scales.npy")).tolist()
+
+        if len(dynamic_face_zoom_scales) != total_frames:
+            dynamic_face_zoom_scales = []
+            for frame_index in range(start_index, total_frames):
+                frame_width = config.frame_width
+                frame_height = config.frame_height
+
+                input_img = Image.open(input_images_path_list[frame_index])
+                input_img_arr = np.array(input_img)
+
+                face_detect_coords = face_detect(Image.fromarray(input_img_arr), config.face_threshold)
+
+                select_face_coords = None
+                zoom_scale = None
+                if len(face_detect_coords) == 1:
+                    select_face_coords = face_detect_coords[0]
+                    (x1, y1, x2, y2) = select_face_coords
+                    (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                    select_area = w * h
+                elif len(face_detect_coords) > 1:
+                    select_face_coords = face_detect_coords[0]
+                    (x1, y1, x2, y2) = select_face_coords
+                    (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                    select_area = w * h
+                    for i in range(1, len(face_detect_coords)):
+                        (x1, y1, x2, y2) = face_detect_coords[i]
+                        (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                        area = w * h
+                        print(f"- {area}")
+                        if select_area > area:
+                            select_face_coords = face_detect_coords[i]
+                            select_area = area
+
+                if select_face_coords != None:
+                    (x1, y1, x2, y2) = select_face_coords
+                    (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
+                    print(f"face detect ({x}, {y}, {w}, {h})")
+                    dynamic_face_size = select_area**0.5
+                    print(f"dynamic_face_scale {dynamic_face_size}")
+
+                    guide_area_size = frame_width / config.dynamic_face_zoom_ratio
+                    print(f"dynamic guide_area_scale {guide_area_size}")
+                    if guide_area_size > dynamic_face_size:
+                        zoom_scale = 1 + (guide_area_size - dynamic_face_size) / guide_area_size
+                        print(f"dynamic zoom_scale {zoom_scale}")
+                    elif guide_area_size < dynamic_face_size:
+                        if tweenScale.current > 1:
+                            zoom_scale = 1 + (guide_area_size - dynamic_face_size) / guide_area_size
+                            print(f"dynamic zoom_scale {zoom_scale}")
+
+                if zoom_scale == None:
+                    if frame_index == 0:
+                        zoom_scale = 1
+                    else:
+                        zoom_scale = dynamic_face_zoom_scales[frame_index - 1]
+                    if zoom_scale < 1:
+                        zoom_scale = 1
+
+                dynamic_face_zoom_scales.append(zoom_scale)
+
+            print(len(dynamic_face_zoom_scales))
+            dynamic_face_zoom_scales = smooth_data(dynamic_face_zoom_scales, 5)
+            print(len(dynamic_face_zoom_scales))
+            np.save(os.path.join(project_folder, f"./dynamic_face_zoom_scales.npy"), dynamic_face_zoom_scales)
+
+    base_prompt = config.base_prompt+","+config.base_prompt2+","+config.base_prompt3+","+config.base_prompt4+","+config.base_prompt5
     interrogate_prompt = ""
 
     for frame_index in range(start_index, total_frames):
-        output_filename = os.path.basename(input_images_path_list[frame_index])
-        output_image_path = os.path.join(output_folder, output_filename)
+        if samplerun != None:
+            print(f"model_names {samplerun_index}/{len(model_names)}")
+            if samplerun_index == len(model_names):
+                break
+            checkpoint = model_names[samplerun_index]
+            checkpoint_name = os.path.splitext(checkpoint)[0]
+            print(f"checkpoint {checkpoint_name}")
+            output_filename = checkpoint_name + ".png"
+            output_image_path = os.path.join(output_folder, output_filename)
+            samplerun_index = samplerun_index + 1
+            if os.path.isfile(output_image_path):
+                continue
+            if "XL" in checkpoint_name:
+                continue
+            api.util_set_model(checkpoint)
+            frame_index = int(samplerun)
+        elif loratest != None:
+            if samplerun_index == len(loratest_list):
+                break
+            print(loratest_list[frame_index])
+            loratest = os.path.splitext(os.path.basename(loratest_list[frame_index]))[0]
+            output_filename = loratest + ".png"
+            print(f"loratest output_filename {output_filename}")
+            output_image_path = os.path.join(output_folder, output_filename)
+            samplerun_index = samplerun_index + 1
+            frame_index = 0
+        else:
+            output_filename = os.path.basename(input_images_path_list[frame_index])
+            output_image_path = os.path.join(output_folder, output_filename)
 
         frame_number = frame_index + 1
         print(f"# frame {frame_number}/{total_frames}")
@@ -187,7 +338,7 @@ def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, res
                 break
 
             if "base_prompt" in frame_config or "base_prompt2" in frame_config or "base_prompt3" in frame_config or "base_prompt4" in frame_config or "base_prompt5" in frame_config:
-                base_prompt = config.base_prompt + "," + config.base_prompt2 + "," + config.base_prompt3 + "," + config.base_prompt4 + "," + config.base_prompt5
+                base_prompt = config.base_prompt+","+config.base_prompt2+","+config.base_prompt3+","+config.base_prompt4+","+config.base_prompt5
 
             for key in schedule_availables:
                 if key in frame_config:
@@ -199,10 +350,81 @@ def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, res
         input_img = Image.open(input_images_path_list[frame_index])
         input_img_arr = np.array(input_img)
 
+        # image crop
+        if config.frame_crop != None and len(config.frame_crop) == 4:
+            [x, y, w, h] = config.frame_crop
+            input_img_arr = input_img_arr[y : y + h, x : x + w]
+            input_img = Image.fromarray(input_img_arr)
+            # input_img.save(os.path.join(output_folder, output_filename))
+
         # fit frame size
         if input_img.width != frame_width or input_img.height != frame_height:
             input_img_arr = resize_image(input_img_arr, frame_width, frame_height, config.frame_resize, config.frame_resize_anchor)
             input_img = Image.fromarray(input_img_arr)
+
+        # dynamic face zoom
+        if config.dynamic_face_zoom:
+            scale = dynamic_face_zoom_scales[frame_index] if len(dynamic_face_zoom_scales) > frame_index else dynamic_face_zoom_scales[-1]
+            print(f"scale {scale}")
+            input_img_arr = zoom_image(input_img_arr, scale)
+            (h, w) = input_img_arr.shape[:2]
+            if config.dynamic_face_zoom_anchor == "left":
+                x = 0
+            else:
+                x = (w - input_img.width) >> 1
+            y = (h - input_img.height) >> 1
+            input_img_arr = input_img_arr[y : y + frame_height, x : x + frame_width]
+            input_img = Image.fromarray(input_img_arr)
+
+        # zoom scale
+        else:
+            if config.frame_zoom != None:
+                print(f"frame zoom {config.frame_zoom}")
+                if isinstance(config.frame_zoom, list):
+                    if len(config.frame_zoom) == 4:
+                        [scale, offset_x, offset_y, frames] = config.frame_zoom
+                    elif len(config.frame_zoom) == 3:
+                        [scale, offset_x, offset_y] = config.frame_zoom
+                        frames = 0
+                    elif len(config.frame_zoom) == 1:
+                        [scale] = config.frame_zoom
+                        offset_x = 0
+                        offset_y = 0
+                        frames = 0
+                    else:
+                        scale = 1
+                        offset_x = 0
+                        offset_y = 0
+                        frames = 0
+                else:
+                    scale = config.frame_zoom
+                    offset_x = 0
+                    offset_y = 0
+                    frames = 0
+                if scale < 1:
+                    scale = 1
+
+                tweenScale.reset(scale, frames)
+                tweenOffsetX.reset(offset_x, frames)
+                tweenOffsetX.reset(offset_y, frames)
+                tweenScale.next()
+                tweenOffsetX.next()
+                tweenOffsetY.next()
+                config.frame_zoom = None
+
+            print(f"scale {tweenScale.current}")
+            if tweenScale.current != 1 or tweenOffsetX.current != 0 or tweenOffsetY.current != 0:
+                print(f"zoom scale {tweenScale.current} ({tweenOffsetX.current},{tweenOffsetY.current})")
+                input_img_arr = zoom_image(input_img_arr, tweenScale.current)
+                (h, w) = input_img_arr.shape[:2]
+                x = ((w - input_img.width) >> 1) + int(tweenOffsetX.current)
+                y = ((h - input_img.height) >> 1) + int(tweenOffsetY.current)
+                input_img_arr = input_img_arr[y : y + frame_height, x : x + frame_width]
+                input_img = Image.fromarray(input_img_arr)
+
+            tweenScale.next()
+            tweenOffsetX.next()
+            tweenOffsetY.next()
 
         # resume frame
         if frame_number < resume_frame:
@@ -213,7 +435,12 @@ def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, res
         if not overwrite:
             if os.path.isfile(output_image_path):
                 print("skip")
-                if frame_number < total_frames and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index + 1]))):
+                if (
+                    samplerun == None
+                    and loratest == None
+                    and frame_number < total_frames
+                    and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index + 1])))
+                ):
                     print(f"last image {input_images_path_list[frame_index]}")
                     last_image_arr = np.array(Image.open(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index]))))
                 continue
@@ -228,6 +455,9 @@ def run(config: Config, project_folder: str, overwrite: bool, reverse: bool, res
             interrogate_prompt = ""
 
         prompt = base_prompt
+
+        if loratest != None:
+            prompt = prompt + f" <lora:{loratest}:0.7>"
 
         if config.use_base_img2img:
             for unit in controlnet_units:

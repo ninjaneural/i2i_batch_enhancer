@@ -82,14 +82,21 @@ def blur_masks(masks, dilation_factor, iter=1):
 
 def merge_image(bg_array, patch_array, coord, mask_array):
     (x, y, w, h) = coord
+    print(f"coord {coord}")
 
-    patch_array = resize_image(patch_array, w, h)
+    print(f"patch_array1 {patch_array.shape}")
+    patch_array = resize_image(patch_array, w, h, "crop")
     mask_array = mask_array[y : y + h, x : x + w]
     mask_array = mask_array.astype(dtype="float") / 255
     if mask_array.ndim == 2:
         mask_array = mask_array[:, :, np.newaxis]
 
     bg = bg_array[y : y + h, x : x + w]
+    print(f"bg {bg.shape}")
+    print(f"mask_array {mask_array.shape}")
+    print(f"patch_array {patch_array.shape}")
+    # (p_h, p_w) = patch_array.shape[:2]
+    patch_array = patch_array[0:h, 0:w]
     bg_array[y : y + h, x : x + w] = mask_array * patch_array + (1 - mask_array) * bg
 
     return bg_array

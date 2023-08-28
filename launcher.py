@@ -2,6 +2,10 @@ import os
 import json
 import argparse
 import helper.enhancer as enhancer
+import helper.generate as generate
+import helper.dynamic_zoom as dynamic_zoom
+import helper.loratest as loratest
+import helper.samplerun as samplerun
 import helper.padding_end as padding_end
 import helper.video_util as video_util
 import helper.patch_cover as patch_cover
@@ -19,6 +23,10 @@ def get_args():
     parser.add_argument("--rework-mode", dest="rework_mode", default="")
     parser.add_argument("--patchfile", dest="patchfile", default="")
     parser.add_argument("--samplerun", dest="samplerun", default=None)
+    parser.add_argument("--loratest", dest="loratest", default=None)
+    parser.add_argument("--generate", dest="generate", default=False)
+    parser.add_argument("--dynamic-zoom", dest="dynamic_zoom", default=False)
+    parser.add_argument("--reverse", dest="reverse", default=False)
 
     # video
     parser.add_argument("--fps", dest="fps", default=15)
@@ -50,14 +58,32 @@ else:
     # padding end mode
     elif int(args.padding_end) > 0:
         padding_end.run(Config(**config), project_folder=configpath, padding_end=int(args.padding_end))
+    # samplerun
+    elif args.samplerun != None:
+        samplerun.run(Config(**config), project_folder=configpath, samplerun=args.samplerun)
+    # loratest
+    elif args.loratest:
+        loratest.run(Config(**config), project_folder=configpath)
+    # dynamic zoom
+    elif args.dynamic_zoom:
+        dynamic_zoom.run(Config(**config), project_folder=configpath)
+    # generate
+    elif args.generate:
+        generate.run(
+            Config(**config),
+            project_folder=configpath,
+            overwrite=bool(args.overwrite),
+            resume_frame=int(args.resume_frame),
+            end_frame=int(args.end_frame),
+        )
     # run
     else:
         enhancer.run(
             Config(**config),
             project_folder=configpath,
             overwrite=bool(args.overwrite),
+            reverse=bool(args.reverse),
             resume_frame=int(args.resume_frame),
             end_frame=int(args.end_frame),
             rework_mode=str(args.rework_mode),
-            samplerun=args.samplerun,
         )
