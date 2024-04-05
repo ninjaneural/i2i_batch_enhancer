@@ -190,9 +190,9 @@ def run(config: Config, project_folder: str):
             # input_img.save(os.path.join(output_folder, output_filename))
 
         # fit frame size
-        if input_img.width != frame_width or input_img.height != frame_height:
-            input_img_arr = resize_image(input_img_arr, frame_width, frame_height, config.frame_resize, config.frame_resize_anchor)
-            input_img = Image.fromarray(input_img_arr)
+        # if input_img.width != frame_width or input_img.height != frame_height:
+        #     input_img_arr = resize_image(input_img_arr, frame_width, frame_height, config.frame_resize, config.frame_resize_anchor)
+        #     input_img = Image.fromarray(input_img_arr)
 
         # dynamic face zoom
         if config.dynamic_face_zoom:
@@ -204,7 +204,9 @@ def run(config: Config, project_folder: str):
                 x = 0
             else:
                 x = (w - input_img.width) >> 1
+            x = (w - input_img.width) >> 1
             y = (h - input_img.height) >> 1
+            print(f"x y {x} {y}")
             input_img_arr = input_img_arr[y : y + frame_height, x : x + frame_width]
             input_img = Image.fromarray(input_img_arr)
 

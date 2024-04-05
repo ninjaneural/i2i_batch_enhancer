@@ -6,7 +6,6 @@ import numpy as np
 def get_image_paths(folder):
     image_extensions = ("*.jpg", "*.jpeg", "*.png", "*.bmp")
     files = []
-    print("folder"+folder)
     for ext in image_extensions:
         files.extend(glob.glob(os.path.join(folder, ext)))
     return sorted(files)

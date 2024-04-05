@@ -1,10 +1,17 @@
 class Config(dict):
     def __init__(self, **kwargs):
+        self.host = ""
+        self.port = 443
+        self.https = True
         self.initial_noise_multiplier = 1
         self.checkpoint = ""
+        self.vae = ""
         self.init_image_path = ""
         self.input_folder = "./input"
         self.output_folder = "./output"
+        self.source_folder = ""
+        self.mask_folder = ""
+        self.faceid_folder = ""
 
         self.base_prompt = "(masterpiece, high quality:1.2),"
         self.base_prompt2 = ""
@@ -22,6 +29,7 @@ class Config(dict):
         self.sampler_name = "Euler a"
         self.sampler_step = 30
         self.cfg_scale = 5
+        self.freeu = False
         self.face_sampler_name = ""
         self.face_sampler_step = -1
         self.face_cfg_scale = -1
@@ -32,13 +40,14 @@ class Config(dict):
         self.frame_crop = None  # [x, y, width, height]
         self.frame_zoom = None  # [scale, offsetx, offsety, frames(0=immediately)]
 
-        self.start_frame = 1
         self.dynamic_face_zoom = False
         self.dynamic_face_zoom_ratio = 6.5
         self.dynamic_face_zoom_anchor = "center"  # center, left
 
         self.generate_input_folder = "./input"
         self.generate_output_folder = ""
+        self.generate_seed = -1
+        self.generate_seed_mode = "fixed"  # fixed,iter,random
         self.generate_sampler_name = ""
         self.generate_sampler_step = -1
         self.generate_width = 512

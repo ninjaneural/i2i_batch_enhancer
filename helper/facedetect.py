@@ -33,9 +33,9 @@ def face_img_crop(img_array, face_coords):
         h = int(face[3])
         # print(f"face {[x,y,w,h]}")
 
-        if w * h <= 180000:
-            face_imgs.append(img_array[y : y + h, x : x + w])
-            new_coords.append([x, y, w, h])
+        # if w * h <= 360000:
+        face_imgs.append(img_array[y : y + h, x : x + w])
+        new_coords.append([x, y, w, h])
 
     resized = []
     for face_img, new_coord in zip(face_imgs, new_coords):
@@ -66,6 +66,7 @@ def process(input_img_arr, threshold, padding, blur, face_image_folder, output_f
     (height, width) = input_img_arr.shape[:2]
     output_basename = os.path.splitext(output_filename)[0]
     coords = face_detect(Image.fromarray(input_img_arr), threshold)
+    # print(f"{coords=}")
     face_coords = []
     mask_coords = []
     for coord in coords:
@@ -86,8 +87,9 @@ def process(input_img_arr, threshold, padding, blur, face_image_folder, output_f
             y2 = height
         (x, y, w, h) = (x1, y1, x2 - x1, y2 - y1)
         face_coords.append((x, y, w, h))
-    # print(face_coords)
+    print(f"{face_coords=}")
     [face_list, face_new_coords] = face_img_crop(input_img_arr, face_coords)
+    print(f"{face_list=} {face_new_coords=}")
     for face_index, face in enumerate(face_list):
         output_face_filename = f"{output_basename}-face{face_index}.png"
         output_face_image_path = os.path.join(face_image_folder, output_face_filename)

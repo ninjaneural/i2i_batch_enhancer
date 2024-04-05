@@ -9,7 +9,7 @@ from PIL import Image, PngImagePlugin
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Dict, Any
-
+from pprint import pprint
 
 class Upscaler(str, Enum):
     none = "None"
@@ -56,6 +56,7 @@ class ControlNetUnit:
     def __init__(
         self,
         input_image: Image = None,
+        input_image_path: str = None,
         encoded_image: str = None,
         mask: Image = None,
         module: str = "none",
@@ -75,6 +76,7 @@ class ControlNetUnit:
         down_sampling_rate: float = 1,
     ):
         self.input_image = input_image
+        self.input_image_path = input_image_path
         self.encoded_image = encoded_image
         self.mask = mask
         self.module = module
@@ -152,6 +154,7 @@ class WebUIApi:
         sampler="Euler a",
         steps=20,
         use_https=False,
+        timeout=120,
         username=None,
         password=None,
     ):
@@ -164,6 +167,7 @@ class WebUIApi:
         self.baseurl = baseurl
         self.default_sampler = sampler
         self.default_steps = steps
+        self.timeout = timeout
 
         self.session = requests.Session()
 
@@ -190,8 +194,11 @@ class WebUIApi:
         r = response.json()
         images = []
         if "images" in r.keys():
+            for i in r["images"]:
+                b = base64.b64decode(i)
             images = [Image.open(io.BytesIO(base64.b64decode(i))) for i in r["images"]]
         elif "image" in r.keys():
+            b = base64.b64decode(r["image"])
             images = [Image.open(io.BytesIO(base64.b64decode(r["image"])))]
 
         info = ""
@@ -372,7 +379,7 @@ class WebUIApi:
         images=[],  # list of PIL Image
         resize_mode=0,
         denoising_strength=0.75,
-        image_cfg_scale=1.5,
+        image_cfg_scale=0,
         mask_image=None,  # PIL Image mask
         mask_blur=4,
         inpainting_fill=0,

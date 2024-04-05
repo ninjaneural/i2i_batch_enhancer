@@ -3,12 +3,8 @@ import helper.webuiapi as webuiapi
 from PIL import Image
 import numpy as np
 from helper.temporalnet2 import make_flow, encode_image
-from helper.zoom import process as zoom_process
-from helper.facedetect import face_detect, process as face_process
-from helper.image_util import zoom_image, resize_image, crop_and_resize, merge_image
 from helper.config import Config
-from helper.util import get_image_paths, smooth_data, intersect_rect
-from shutil import copyfile
+from helper.util import get_image_paths
 import random
 
 
@@ -16,9 +12,11 @@ schedule_availables = [
     "base_prompt",
     "seed",
     "seed_mode",
-    "sampler_name",
-    "sampler_step",
+    "generate_sampler_name",
+    "generate_sampler_step",
     "cfg_scale",
+    "generate_width",
+    "generate_height",
     "temporalnet",
     "temporalnet_weight",
 ]
@@ -42,7 +40,8 @@ unit_tempo_v2 = webuiapi.ControlNetUnit(
 
 api = webuiapi.WebUIApi()
 
-def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int, end_frame: int):
+
+def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int, start_frame: int, end_frame: int):
     print(f"# project path {project_folder}")
 
     if project_folder:
@@ -86,7 +85,6 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
     input_images_path_list = get_image_paths(input_folder)
 
     input_img = None
-    input_img_arr = None
 
     last_image_arr = None
     flow_image_arr = None
@@ -96,12 +94,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
 
     start_index = 0
 
-    if not config.start_frame:
-        config.start_frame = 1
-
     total_frames = len(input_images_path_list)
 
-    base_prompt = config.base_prompt+","+config.base_prompt2+","+config.base_prompt3+","+config.base_prompt4+","+config.base_prompt5
+    base_prompt = config.base_prompt + "," + config.base_prompt2 + "," + config.base_prompt3 + "," + config.base_prompt4 + "," + config.base_prompt5
     interrogate_prompt = ""
 
     for frame_index in range(start_index, total_frames):
@@ -111,7 +106,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         frame_number = frame_index + 1
         print(f"# frame {frame_number}/{total_frames}")
 
-        if config.start_frame > frame_number:
+        if start_frame > frame_number:
             continue
 
         #####################
@@ -142,14 +137,13 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 break
 
             if "base_prompt" in frame_config or "base_prompt2" in frame_config or "base_prompt3" in frame_config or "base_prompt4" in frame_config or "base_prompt5" in frame_config:
-                base_prompt = config.base_prompt+","+config.base_prompt2+","+config.base_prompt3+","+config.base_prompt4+","+config.base_prompt5
+                base_prompt = config.base_prompt + "," + config.base_prompt2 + "," + config.base_prompt3 + "," + config.base_prompt4 + "," + config.base_prompt5
 
             for key in schedule_availables:
                 if key in frame_config:
                     setattr(config, key, frame_config[key])
 
         input_img = Image.open(input_images_path_list[frame_index])
-        input_img_arr = np.array(input_img)
 
         # resume frame
         if frame_number < resume_frame:
@@ -160,10 +154,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         if not overwrite:
             if os.path.isfile(output_image_path):
                 print("skip")
-                if (
-                    frame_number < total_frames
-                    and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index + 1])))
-                ):
+                if frame_number < total_frames and not os.path.isfile(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index + 1]))):
                     print(f"last image {input_images_path_list[frame_index]}")
                     last_image_arr = np.array(Image.open(os.path.join(output_folder, os.path.basename(input_images_path_list[frame_index]))))
                 continue
@@ -181,7 +172,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
             unit.input_image = input_img
 
         p_controlnet_units = []
-        if config.start_frame == frame_number or (config.temporalnet_reset_frames != None and frame_number in config.temporalnet_reset_frames):
+        if start_frame == frame_number or (config.temporalnet_reset_frames != None and frame_number in config.temporalnet_reset_frames):
             if config.temporalnet_reset_interrogate:
                 ret = api.interrogate(input_img, config.interrogate_model)
                 print(f"[temporalnet reset interrogate({config.interrogate_model})] {ret.info}")
@@ -191,7 +182,9 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
         else:
             unit_tempo = None
             if config.temporalnet == "v2":
-                flow_image_arr = make_flow(input_images_path_list[frame_index - 1], input_images_path_list[frame_index], config.generate_width, config.generate_height, flow_image_folder, output_filename)
+                flow_image_arr = make_flow(
+                    input_images_path_list[frame_index - 1], input_images_path_list[frame_index], config.generate_width, config.generate_height, flow_image_folder, output_filename
+                )
                 unit_tempo = unit_tempo_v2
                 unit_tempo.weight = config.temporalnet_weight
                 unit_tempo.encoded_image = encode_image(flow_image_arr, last_image_arr)
@@ -218,7 +211,7 @@ def run(config: Config, project_folder: str, overwrite: bool, resume_frame: int,
                 enable_hr=True,
                 hr_scale=2,
                 hr_upscaler="4x-UltraSharp",
-                hr_second_pass_steps=config.generate_sampler_step/2,
+                hr_second_pass_steps=config.generate_sampler_step / 2,
                 denoising_strength=0.4,
                 controlnet_units=[x for x in p_controlnet_units if x is not None],
             )

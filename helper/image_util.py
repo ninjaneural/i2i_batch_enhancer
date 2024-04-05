@@ -1,7 +1,5 @@
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw
-
 
 def zoom_image(img, scale):
     interpolation = interpolation = cv2.INTER_CUBIC
@@ -37,6 +35,7 @@ def resize_image(img, w, h, mode="resize", anchor="center"):
                 y = (re_h - h) >> 1
             elif anchor == "bottom":
                 y = re_h - h
+        
         return cv2.resize(img, (re_w, re_h), interpolation=interpolation)[y : y + h, x : x + w]
     elif mode == "fit":
         if w / img_width > h / img_height:
@@ -60,9 +59,9 @@ def resize_image(img, w, h, mode="resize", anchor="center"):
     return cv2.resize(img, (w, h), interpolation=interpolation)
 
 
-def crop_and_resize(img_array, coords, re_w, re_h, mode="resize"):
+def crop_and_resize(img_array, coords, re_w, re_h, frame_width, frame_height, mode="resize", pad = 0):
     (x, y, w, h) = coords
-    crop_image = img_array[y : y + h, x : x + w]
+    crop_image = img_array[max(y - pad,0) : min(y + h + pad, frame_height), max(x - pad,0) : min(x + w + pad, frame_width)]
     return resize_image(crop_image, re_w, re_h, mode)
 
 
@@ -96,7 +95,7 @@ def merge_image(bg_array, patch_array, coord, mask_array):
     print(f"mask_array {mask_array.shape}")
     print(f"patch_array {patch_array.shape}")
     # (p_h, p_w) = patch_array.shape[:2]
-    patch_array = patch_array[0:h, 0:w]
+    patch_array = patch_array[0:mask_array.shape[0], 0:mask_array.shape[1]]
     bg_array[y : y + h, x : x + w] = mask_array * patch_array + (1 - mask_array) * bg
 
     return bg_array
